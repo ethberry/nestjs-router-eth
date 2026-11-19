@@ -8,7 +8,7 @@ import { SchedulerRegistry } from "@nestjs/schedule";
 import { CronJob } from "cron";
 import { EMPTY, from, Observable, Subject } from "rxjs";
 import { mergeAll, mergeMap } from "rxjs/operators";
-import { decodeEventLog, Hash } from "viem";
+import { decodeEventLog, Hash, toEventSelector } from "viem";
 import type { PublicClient } from "viem";
 
 import { getPastEvents } from "./utils/get-past-events.js";
@@ -23,7 +23,7 @@ export class ViemService {
   private instanceId: string;
   private cronLock = false;
   private toBlock = 0n;
-  private registry: Array<IContractOptions> = [];
+  private registry: IContractOptions[] = [];
   private subject = new Subject<any>();
 
   constructor(
@@ -96,25 +96,31 @@ export class ViemService {
   }
 
   public async getPastEvents(
-    registry: Array<IContractOptions>,
+    registry: IContractOptions[],
     fromBlock: bigint,
     toBlock: bigint,
     chunkSize?: number,
   ): Promise<void> {
-    const allAddress = registry.reduce<Array<Hash>>(
-      (memo, current) => memo.concat(current.contractAddress as Array<Hash>),
-      [],
-    );
-    const allSignatures = registry.reduce<Array<string>>((memo, current) => memo.concat(current.eventSignatures), []);
+    const allAddress = registry.reduce<Hash[]>((memo, current) => memo.concat(current.contractAddress as Hash[]), []);
+    const allSignatures = registry.reduce<string[]>((memo, current) => memo.concat(current.eventSignatures), []);
 
     const logs = await getPastEvents(this.client, allAddress, allSignatures, fromBlock, toBlock, chunkSize).catch(e => {
       this.loggerService.error(JSON.stringify(e, null, "\t"), `${ViemService.name}-${this.instanceId}`);
       return [];
     });
 
+    // one address can sit in several entries (a token and its access-control or ownable entry): an entry decodes only
+    // the logs of its own events, so a decode error left after this is a real one
+    const selectors = registry.map(
+      entry => new Set(entry.eventSignatures.map(signature => toEventSelector(signature))),
+    );
+
     for (const log of logs) {
-      for (const entry of registry) {
+      for (const [index, entry] of registry.entries()) {
         if (!entry.contractAddress.map(a => a.toLowerCase()).includes(log.address.toLowerCase())) {
+          continue;
+        }
+        if (!selectors[index].has(log.topics[0]!)) {
           continue;
         }
 
@@ -168,7 +174,7 @@ export class ViemService {
     );
   }
 
-  public getRegistry(): Array<IContractOptions> {
+  public getRegistry(): IContractOptions[] {
     return this.registry;
   }
 
