@@ -73,14 +73,19 @@ const transferLog = (address: Hash, tokenId: bigint) =>
 @Controller()
 class ListenerController {
   public readonly delivered: string[] = [];
+  // the Deployed handler also calls getPastEvents for the new token itself, as an app may do
+  public rereadOnDeploy = false;
 
   constructor(private readonly viemService: ViemService) {}
 
   @EventPattern({ contractType: "FACTORY", eventName: "TokenDeployed" })
-  public onDeployed(@Payload() { args }: ILogEvent<{ addr: Hash }>): void {
+  public async onDeployed(@Payload() { args }: ILogEvent<{ addr: Hash }>): Promise<void> {
     // decoded addresses come checksummed
     this.delivered.push(`FACTORY:TokenDeployed:${args.addr.toLowerCase()}`);
     this.viemService.updateRegistry(tokenEntry(args.addr));
+    if (this.rereadOnDeploy) {
+      await this.viemService.getPastEvents([tokenEntry(args.addr)], 0n, 1n);
+    }
   }
 
   @EventPattern({ contractType: "FACTORY", eventName: "FactoryDeployed" })
@@ -112,7 +117,7 @@ describe("ViemService.getPastEvents: a contract added to the registry during a r
     await Promise.all(modules.splice(0).map(moduleRef => moduleRef.close()));
   });
 
-  const run = async (registry: IContractOptions[], logs: ITestLog[]) => {
+  const run = async (registry: IContractOptions[], logs: ITestLog[], rereadOnDeploy = false) => {
     const getLogs = jest.fn(({ address }: { address: Hash[] }) =>
       Promise.resolve(logs.filter(l => address.map(a => a.toLowerCase()).includes(l.address.toLowerCase()))),
     );
@@ -129,6 +134,7 @@ describe("ViemService.getPastEvents: a contract added to the registry during a r
       .getCronJobs()
       .forEach(job => job.stop());
 
+    moduleRef.get(ListenerController).rereadOnDeploy = rereadOnDeploy;
     const service = moduleRef.get(ViemService);
     for (const entry of registry) {
       service.updateRegistry(entry);
@@ -174,5 +180,17 @@ describe("ViemService.getPastEvents: a contract added to the registry during a r
     // the first pass for the registry, the second only for the added tokenB
     expect(getLogs).toHaveBeenCalledTimes(2);
     expect(getLogs.mock.calls[1][0].address).toEqual([tokenB]);
+  });
+
+  it("a handler that calls getPastEvents itself does not block the listener", async function () {
+    // the nested call does not wait for handlers (its events queue behind the running one); the range's own pass for
+    // the new token delivers its logs again, as the app asked for them twice
+    const { delivered } = await run([factoryEntry()], [deployedLog(tokenA), transferLog(tokenA, 1n)], true);
+
+    expect(delivered).toEqual([
+      `FACTORY:TokenDeployed:${tokenA}`,
+      `TOKEN:Transfer:${tokenA}:1`,
+      `TOKEN:Transfer:${tokenA}:1`,
+    ]);
   });
 });

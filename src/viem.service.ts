@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { LoggerService } from "@nestjs/common";
 import { MessageHandler } from "@nestjs/microservices";
@@ -18,12 +20,11 @@ import type { IContractOptions, ILogEvent, IViemModuleOptions } from "./interfac
 
 const blockPattern = { eventName: BLOCK_EVENT };
 
-// an event on its way to the handlers; done is called when its handlers have finished
+// an event on its way to the handlers
 interface IRoutedEvent {
   pattern: Record<string, string>;
   description: ILogEvent;
   log: unknown;
-  done?: () => void;
 }
 
 @Injectable()
@@ -33,6 +34,11 @@ export class ViemService {
   private toBlock = 0n;
   private registry: IContractOptions[] = [];
   private subject = new Subject<IRoutedEvent>();
+  // events emitted whose handlers have not finished, and who waits for that number to reach 0
+  private pending = 0;
+  private drainWaiters: Array<() => void> = [];
+  // set while a handler runs: getPastEvents called from a handler must not wait for the queue the handler blocks
+  private handlerContext = new AsyncLocalStorage<boolean>();
 
   constructor(
     @Inject(Logger)
@@ -47,10 +53,10 @@ export class ViemService {
     this.subject
       .pipe(
         mergeMap(
-          ({ pattern, description, log, done }) =>
+          ({ pattern, description, log }) =>
             from(this.call(pattern, description, log)).pipe(
               mergeAll(),
-              finalize(() => done?.()),
+              finalize(() => this.settle()),
             ),
           1,
         ),
@@ -116,13 +122,21 @@ export class ViemService {
     toBlock: bigint,
     chunkSize?: number,
   ): Promise<void> {
+    // called from a handler: the handlers run one at a time, so the events of this call queue behind the running
+    // handler; waiting for them here would block that handler and the listener for good. One pass, no waiting.
+    if (this.handlerContext.getStore()) {
+      await this.routeLogs(registry, fromBlock, toBlock, chunkSize);
+      return;
+    }
+
     // a handler can add to the registry while the range is processed (a factory's Deployed event adds the new
-    // contract): after a pass, the range is fetched again for the entry addresses that appeared during it, until no
-    // new one appears
+    // contract): after a pass and all queued handlers, the range is fetched again for the entry addresses that
+    // appeared during it, until no new one appears
     const fetched = new Set<string>();
     let pass = this.notFetched(registry, fetched);
     while (pass.length) {
       await this.routeLogs(pass, fromBlock, toBlock, chunkSize);
+      await this.drained();
       pass = this.notFetched(registry, fetched);
     }
   }
@@ -178,11 +192,13 @@ export class ViemService {
 
     return Promise.allSettled(
       discoveredMethodsWithMeta.map(discoveredMethodWithMeta => {
-        return (
-          discoveredMethodWithMeta.discoveredMethod.handler.bind(
-            discoveredMethodWithMeta.discoveredMethod.parentClass.instance,
-          ) as MessageHandler
-        )(description, context);
+        return this.handlerContext.run(true, () =>
+          (
+            discoveredMethodWithMeta.discoveredMethod.handler.bind(
+              discoveredMethodWithMeta.discoveredMethod.parentClass.instance,
+            ) as MessageHandler
+          )(description, context),
+        );
       }),
     ).then(res => {
       res.forEach(r => {
@@ -221,7 +237,7 @@ export class ViemService {
     }
 
     const args = { blockNumber };
-    this.subject.next({
+    this.emit({
       pattern: blockPattern,
       description: {
         name: BLOCK_EVENT,
@@ -252,7 +268,7 @@ export class ViemService {
     return pass;
   }
 
-  // fetches the logs of the range for the registry, routes them and waits until their handlers have finished
+  // fetches the logs of the range for the registry and queues them for the handlers
   private async routeLogs(
     registry: IContractOptions[],
     fromBlock: bigint,
@@ -267,7 +283,6 @@ export class ViemService {
       return [];
     });
 
-    const handled: Array<Promise<void>> = [];
     for (const log of logs) {
       for (const entry of registry) {
         if (!entry.contractAddress.map(a => a.toLowerCase()).includes(log.address.toLowerCase())) {
@@ -290,19 +305,14 @@ export class ViemService {
             args: logDescription.args,
           };
 
-          handled.push(
-            new Promise<void>(resolve => {
-              this.subject.next({
-                pattern: {
-                  contractType: entry.contractType,
-                  eventName: description.name,
-                },
-                description,
-                log,
-                done: resolve,
-              });
-            }),
-          );
+          this.emit({
+            pattern: {
+              contractType: entry.contractType,
+              eventName: description.name,
+            },
+            description,
+            log,
+          });
         } catch (e: unknown) {
           if (this.options.debug) {
             this.loggerService.log("CAN'T PARSE LOG", `${ViemService.name}-${this.instanceId}`);
@@ -312,7 +322,26 @@ export class ViemService {
         }
       }
     }
+  }
 
-    await Promise.all(handled);
+  private emit(event: IRoutedEvent): void {
+    this.pending++;
+    this.subject.next(event);
+  }
+
+  // an emitted event's handlers have finished
+  private settle(): void {
+    this.pending--;
+    if (!this.pending) {
+      this.drainWaiters.splice(0).forEach(resolve => resolve());
+    }
+  }
+
+  // resolves when the handlers of every emitted event have finished, also of events emitted meanwhile
+  private drained(): Promise<void> {
+    if (!this.pending) {
+      return Promise.resolve();
+    }
+    return new Promise<void>(resolve => this.drainWaiters.push(resolve));
   }
 }
