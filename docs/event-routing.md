@@ -17,13 +17,19 @@ whose `@EventPattern({ contractType, eventName })` matches.
 1. Nothing happens until the registry or a block handler exists.
 2. The head block is read and emitted to block handlers (`BLOCK_EVENT`).
 3. `toBlock` = head − `latency` (option); nothing more while `fromBlock` (option) is above it.
-4. `getPastEvents(registry, fromBlock, toBlock, chunkSize)`: one `eth_getLogs` per chunk of `chunkSize` blocks (0 = one
-   request) for all addresses and all signatures of the registry.
+4. `getPastEvents(registry, fromBlock, toBlock, chunkSize)` processes the range in passes. A pass is one `eth_getLogs`
+   per chunk of `chunkSize` blocks (0 = one request) for the addresses and signatures of the pass.
 5. Each log is decoded with each entry that has the log's address **and** whose `eventSignatures` contain the log's
-   selector (`topics[0]`, `toEventSelector` of each signature, computed once per call). So a log of one entry is never
+   selector (`topics[0]`, `toEventSelector` of each signature, computed once per pass). So a log of one entry is never
    decoded with another entry's ABI that shares the address. Matches go to the handlers with the pattern
-   `{ contractType: entry.contractType, eventName }`.
-6. `fromBlock` becomes `toBlock + 1`. A cycle that is still running when the cron fires again is skipped.
+   `{ contractType: entry.contractType, eventName }`, one event at a time; the pass ends when the handlers of all its
+   events have finished.
+6. A handler may call `updateRegistry` during a pass (a factory's `Deployed` event registers the new contract). After
+   each pass the registry is compared with what this range has fetched, by entry type, address and signature; the
+   next pass fetches the range again for what is new only, and passes repeat until nothing new appears. So every log
+   of a registered contract is delivered once, also the logs a new contract emits in the range that registered it
+   (constructor events, the first mint, a call right after the deploy). The first pass covers the whole registry.
+7. `fromBlock` becomes `toBlock + 1`. A cycle that is still running when the cron fires again is skipped.
 
 ## Errors
 
@@ -40,4 +46,8 @@ whose `@EventPattern({ contractType, eventName })` matches.
   both; an entry with the event but another address does not decode it; the address matches in any letter case; an
   event no entry on the address registered is neither decoded nor reported; a real decode error is logged with `debug`
   and silent without it.
+- `viem.registry.spec.ts` (no chain, the client filters prepared logs by the requested addresses, handlers register
+  contracts): a contract registered by a handler gets its logs of the same range, once; a chain of registrations
+  (a factory deploys a factory that deploys a token) takes one pass per level; an address registered before the range
+  is fetched once, and the next pass asks only for the new address.
 - `viem.service.spec.ts`, `viem.block.spec.ts`: against a local chain (`JSON_RPC_ADDR` in `.env`, `docker compose up`).
