@@ -1,5 +1,8 @@
 # Event routing (1.x line)
 
+The 1.x line is released from the `1.x` branch (`manual.yml`, always a patch) under the dist-tag `v1`
+(`npm i @ethberry/nestjs-viem@v1`); `latest` belongs to the current major on `main`.
+
 `ViemService` reads contract logs from the chain on a cron and routes each decoded event to the controller methods
 whose `@EventPattern({ contractType, eventName })` matches. The 1.x line is CommonJS and finds handlers with
 `@golevelup/nestjs-discovery`.
