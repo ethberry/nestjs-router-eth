@@ -70,17 +70,21 @@ const transferLog = (address: Hash, tokenId: bigint) =>
     encodeEventTopics({ abi: tokenAbi, eventName: "Transfer", args: { from: account, to: account, tokenId } }),
   );
 
-const run = async (registry: IContractOptions[], logs: ITestLog[]) => {
+// rereadOnDeploy: the Deployed handler also calls getPastEvents for the new token itself, as an app may do
+const run = async (registry: IContractOptions[], logs: ITestLog[], rereadOnDeploy = false) => {
   const delivered: string[] = [];
   // set after the module compiles; the handlers run only after that
   const ref: { service?: ViemService } = {};
 
   // the handlers of the app: the factory's Deployed event registers the new token
   class Listener {
-    public onDeployed({ args }: ILogEvent<{ addr: Hash }>) {
+    public async onDeployed({ args }: ILogEvent<{ addr: Hash }>) {
       // decoded addresses come checksummed
       delivered.push(`FACTORY:TokenDeployed:${args.addr.toLowerCase()}`);
       ref.service!.updateRegistry(tokenEntry(args.addr));
+      if (rereadOnDeploy) {
+        await ref.service!.getPastEvents([tokenEntry(args.addr)], 0n, 1n);
+      }
     }
 
     public onFactoryDeployed({ args }: ILogEvent<{ addr: Hash }>) {
@@ -175,5 +179,17 @@ describe("ViemService.getPastEvents: a contract added to the registry during a r
     // the first pass for the registry, the second only for the added tokenB
     expect(getLogs).toHaveBeenCalledTimes(2);
     expect(getLogs.mock.calls[1][0].address).toEqual([tokenB]);
+  });
+
+  it("a handler that calls getPastEvents itself does not block the listener", async function () {
+    // the nested call does not wait for handlers (its events queue behind the running one); the range's own pass for
+    // the new token delivers its logs again, as the app asked for them twice
+    const { delivered } = await run([factoryEntry()], [deployedLog(tokenA), transferLog(tokenA, 1n)], true);
+
+    expect(delivered).toEqual([
+      `FACTORY:TokenDeployed:${tokenA}`,
+      `TOKEN:Transfer:${tokenA}:1`,
+      `TOKEN:Transfer:${tokenA}:1`,
+    ]);
   });
 });

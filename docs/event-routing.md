@@ -22,14 +22,23 @@ whose `@EventPattern({ contractType, eventName })` matches.
 5. Each log is decoded with each entry that has the log's address **and** whose `eventSignatures` contain the log's
    selector (`topics[0]`, `toEventSelector` of each signature, computed once per pass). So a log of one entry is never
    decoded with another entry's ABI that shares the address. Matches go to the handlers with the pattern
-   `{ contractType: entry.contractType, eventName }`, one event at a time; the pass ends when the handlers of all its
-   events have finished.
+   `{ contractType: entry.contractType, eventName }` through one queue, one event at a time (block events too). The
+   pass ends when the queue is empty: the handlers of its events, and of every event queued meanwhile, have finished.
 6. A handler may call `updateRegistry` during a pass (a factory's `Deployed` event registers the new contract). After
    each pass the registry is compared with what this range has fetched, by entry type, address and signature; the
    next pass fetches the range again for what is new only, and passes repeat until nothing new appears. So every log
    of a registered contract is delivered once, also the logs a new contract emits in the range that registered it
    (constructor events, the first mint, a call right after the deploy). The first pass covers the whole registry.
 7. `fromBlock` becomes `toBlock + 1`. A cycle that is still running when the cron fires again is skipped.
+
+## `getPastEvents` from a handler
+
+A handler may call `getPastEvents` itself (a handler runs inside an `AsyncLocalStorage` context that marks it). Such a
+call fetches and decodes its range once, queues the events behind the running handler and returns without waiting for
+them: waiting would block the queue it is part of. There are no extra passes for contracts registered by those
+events; the listen cycle's own pass picks them up. Its events are delivered in addition to the listen cycle's, so a
+handler that re-reads a range a new contract is already fetched for gets those logs twice. Since the cycle delivers
+the logs of a contract registered during the range, a handler does not need to re-read them.
 
 ## Errors
 
@@ -49,5 +58,6 @@ whose `@EventPattern({ contractType, eventName })` matches.
 - `viem.registry.spec.ts` (no chain, the client filters prepared logs by the requested addresses, handlers register
   contracts): a contract registered by a handler gets its logs of the same range, once; a chain of registrations
   (a factory deploys a factory that deploys a token) takes one pass per level; an address registered before the range
-  is fetched once, and the next pass asks only for the new address.
+  is fetched once, and the next pass asks only for the new address; a handler that calls `getPastEvents` for the new
+  contract does not block the listener (its logs come twice).
 - `viem.service.spec.ts`, `viem.block.spec.ts`: against a local chain (`JSON_RPC_ADDR` in `.env`, `docker compose up`).
