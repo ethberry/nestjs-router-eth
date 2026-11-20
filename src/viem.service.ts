@@ -6,7 +6,7 @@ import { PATTERN_METADATA } from "@nestjs/microservices/constants";
 import { SchedulerRegistry } from "@nestjs/schedule";
 import { CronJob } from "cron";
 import { EMPTY, from, Observable, Subject } from "rxjs";
-import { mergeAll, mergeMap } from "rxjs/operators";
+import { finalize, mergeAll, mergeMap } from "rxjs/operators";
 import { DiscoveredMethodWithMeta, DiscoveryService } from "@golevelup/nestjs-discovery";
 import { decodeEventLog, Hash } from "viem";
 import type { PublicClient } from "viem";
@@ -18,13 +18,21 @@ import type { IContractOptions, ILogEvent, IViemModuleOptions } from "./interfac
 
 const blockPattern = { eventName: BLOCK_EVENT };
 
+// an event on its way to the handlers; done is called when its handlers have finished
+interface IRoutedEvent {
+  pattern: Record<string, string>;
+  description: ILogEvent;
+  log: unknown;
+  done?: () => void;
+}
+
 @Injectable()
 export class ViemService {
   private instanceId: string;
   private cronLock = false;
   private toBlock = 0n;
-  private registry: Array<IContractOptions> = [];
-  private subject = new Subject<any>();
+  private registry: IContractOptions[] = [];
+  private subject = new Subject<IRoutedEvent>();
 
   constructor(
     @Inject(Logger)
@@ -37,7 +45,16 @@ export class ViemService {
     protected schedulerRegistry: SchedulerRegistry,
   ) {
     this.subject
-      .pipe(mergeMap(({ pattern, description, log }) => from(this.call(pattern, description, log)).pipe(mergeAll()), 1))
+      .pipe(
+        mergeMap(
+          ({ pattern, description, log, done }) =>
+            from(this.call(pattern, description, log)).pipe(
+              mergeAll(),
+              finalize(() => done?.()),
+            ),
+          1,
+        ),
+      )
       .subscribe({
         next: v => {
           loggerService.log(v, `${ViemService.name}-${this.instanceId}`);
@@ -94,59 +111,19 @@ export class ViemService {
   }
 
   public async getPastEvents(
-    registry: Array<IContractOptions>,
+    registry: IContractOptions[],
     fromBlock: bigint,
     toBlock: bigint,
     chunkSize?: number,
   ): Promise<void> {
-    const allAddress = registry.reduce<Array<Hash>>(
-      (memo, current) => memo.concat(current.contractAddress as Array<Hash>),
-      [],
-    );
-    const allSignatures = registry.reduce<Array<string>>((memo, current) => memo.concat(current.eventSignatures), []);
-
-    const logs = await getPastEvents(this.client, allAddress, allSignatures, fromBlock, toBlock, chunkSize).catch(e => {
-      this.loggerService.error(JSON.stringify(e, null, "\t"), `${ViemService.name}-${this.instanceId}`);
-      return [];
-    });
-
-    for (const log of logs) {
-      for (const entry of registry) {
-        if (!entry.contractAddress.map(a => a.toLowerCase()).includes(log.address.toLowerCase())) {
-          continue;
-        }
-
-        try {
-          // throws DecodeLogDataMismatch
-          const logDescription = decodeEventLog({
-            abi: entry.contractInterface,
-            data: log.data,
-            topics: log.topics,
-          });
-
-          this.loggerService.log(JSON.stringify(logDescription, null, "\t"), `${ViemService.name}-${this.instanceId}`);
-
-          const description = {
-            name: logDescription.eventName,
-            args: logDescription.args,
-          };
-
-          this.subject.next({
-            pattern: {
-              contractType: entry.contractType,
-              eventName: description.name,
-            },
-            description,
-            log,
-          });
-        } catch (e: unknown) {
-          if (this.options.debug) {
-            this.loggerService.log("CAN'T PARSE LOG", `${ViemService.name}-${this.instanceId}`);
-            this.loggerService.log(JSON.stringify(log, null, "\t"), `${ViemService.name}-${this.instanceId}`);
-            this.loggerService.error(e); // DecodeLogDataMismatch
-          }
-        }
-      }
+    // a handler can add to the registry while the range is processed (a factory's Deployed event adds the new
+    // contract): after a pass, the range is fetched again for the entry addresses that appeared during it, until no
+    // new one appears
+    const fetched = new Set<string>();
+    let pass = this.notFetched(registry, fetched);
+    while (pass.length) {
+      await this.routeLogs(pass, fromBlock, toBlock, chunkSize);
+      pass = this.notFetched(registry, fetched);
     }
   }
 
@@ -166,7 +143,7 @@ export class ViemService {
     );
   }
 
-  public getRegistry(): Array<IContractOptions> {
+  public getRegistry(): IContractOptions[] {
     return this.registry;
   }
 
@@ -256,5 +233,86 @@ export class ViemService {
 
   private blockHandlers() {
     return this.getHandlerByPattern(transformPatternToRoute(blockPattern));
+  }
+
+  // the part of the registry whose logs this range has not fetched yet: each entry with the addresses not fetched for
+  // it. The 1.x line decodes a log with every entry on its address (no event selector check), so a pass is per address
+  // and entry type: all logs of such an address are new for that entry, and none is delivered twice.
+  private notFetched(registry: IContractOptions[], fetched: Set<string>): IContractOptions[] {
+    const pass: IContractOptions[] = [];
+    for (const entry of registry) {
+      const key = (address: string) => `${entry.contractType} ${address.toLowerCase()}`;
+      const contractAddress = entry.contractAddress.filter(address => !fetched.has(key(address)));
+      if (!contractAddress.length) {
+        continue;
+      }
+      contractAddress.forEach(address => fetched.add(key(address)));
+      pass.push({ ...entry, contractAddress });
+    }
+    return pass;
+  }
+
+  // fetches the logs of the range for the registry, routes them and waits until their handlers have finished
+  private async routeLogs(
+    registry: IContractOptions[],
+    fromBlock: bigint,
+    toBlock: bigint,
+    chunkSize?: number,
+  ): Promise<void> {
+    const allAddress = registry.reduce<Hash[]>((memo, current) => memo.concat(current.contractAddress as Hash[]), []);
+    const allSignatures = registry.reduce<string[]>((memo, current) => memo.concat(current.eventSignatures), []);
+
+    const logs = await getPastEvents(this.client, allAddress, allSignatures, fromBlock, toBlock, chunkSize).catch(e => {
+      this.loggerService.error(JSON.stringify(e, null, "\t"), `${ViemService.name}-${this.instanceId}`);
+      return [];
+    });
+
+    const handled: Array<Promise<void>> = [];
+    for (const log of logs) {
+      for (const entry of registry) {
+        if (!entry.contractAddress.map(a => a.toLowerCase()).includes(log.address.toLowerCase())) {
+          continue;
+        }
+
+        try {
+          // throws DecodeLogDataMismatch
+          const logDescription = decodeEventLog({
+            abi: entry.contractInterface,
+            data: log.data,
+            topics: log.topics,
+          });
+
+          this.loggerService.log(JSON.stringify(logDescription, null, "\t"), `${ViemService.name}-${this.instanceId}`);
+
+          const description = {
+            // a log that decoded with the entry's ABI has its event name
+            name: logDescription.eventName!,
+            args: logDescription.args,
+          };
+
+          handled.push(
+            new Promise<void>(resolve => {
+              this.subject.next({
+                pattern: {
+                  contractType: entry.contractType,
+                  eventName: description.name,
+                },
+                description,
+                log,
+                done: resolve,
+              });
+            }),
+          );
+        } catch (e: unknown) {
+          if (this.options.debug) {
+            this.loggerService.log("CAN'T PARSE LOG", `${ViemService.name}-${this.instanceId}`);
+            this.loggerService.log(JSON.stringify(log, null, "\t"), `${ViemService.name}-${this.instanceId}`);
+            this.loggerService.error(e); // DecodeLogDataMismatch
+          }
+        }
+      }
+    }
+
+    await Promise.all(handled);
   }
 }
