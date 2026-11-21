@@ -19,6 +19,19 @@ npm t
 
 Check [viem.service.spec.ts](src/viem.service.spec.ts)
 
+### Transport
+
+Build your own clients (a wallet client to send transactions) on `viemTransport()`, as the package's client is. It
+never asks the node `eth_fillTransaction`, which some nodes (Cosmos EVM) answer from a wrong state; viem then fills
+nonce, gas and fees through the plain RPC methods.
+
+```ts
+import { createWalletClient } from "viem";
+import { viemTransport } from "@ethberry/nestjs-viem";
+
+const wallet = createWalletClient({ account, chain, transport: viemTransport() });
+```
+
 ### Contracts registered from a handler
 
 A handler may call `updateRegistry` for a contract it learns about (a factory's `Deployed` event). The listener then

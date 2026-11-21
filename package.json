@@ -77,6 +77,7 @@
     "prepare": "husky",
     "prettier": "prettier . --write",
     "test": "npm run typecheck && cross-env NODE_OPTIONS=--experimental-vm-modules NODE_ENV=${NODE_ENV:=test} jest --detectOpenHandles --runInBand --forceExit",
+    "test:integration": "cross-env NODE_OPTIONS=--experimental-vm-modules NODE_ENV=${NODE_ENV:=test} jest --runInBand --forceExit --coverage=false --testPathIgnorePatterns=/node_modules/ --testMatch='**/*.integration.spec.ts'",
     "typecheck": "tsc -p tsconfig.test.json"
   },
   "title": "NestJS Viem module",
