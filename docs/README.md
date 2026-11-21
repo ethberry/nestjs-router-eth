@@ -5,3 +5,7 @@
 - [Build and publishing](publishing.md)
 - [Event routing](event-routing.md) — registry, the listen cycle, which entry decodes a log, errors
 - [Transport](transport.md) — `viemTransport`, why it never asks `eth_fillTransaction`
+
+## ADR
+
+- [0001. The transport never asks eth_fillTransaction](adr/0001-transport-excludes-eth-fill-transaction.md) — for Cosmos EVM (`evmd`), on every chain

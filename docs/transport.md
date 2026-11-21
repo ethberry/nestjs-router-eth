@@ -19,7 +19,7 @@ unsupported method makes it fall back to the plain calls.
 
 `viemTransport` excludes the method (viem's `methods.exclude`): viem gets `MethodNotSupportedRpcError` without a
 request to the node and fills the transaction as on Besu, on every chain. A caller that sets nonce, gas and fees itself
-is not affected.
+is not affected. Why, for which chain, and the alternatives: [ADR 0001](adr/0001-transport-excludes-eth-fill-transaction.md).
 
 ## Tests
 
