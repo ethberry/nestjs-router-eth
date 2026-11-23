@@ -40,12 +40,21 @@ events; the listen cycle's own pass picks them up. Its events are delivered in a
 handler that re-reads a range a new contract is already fetched for gets those logs twice. Since the cycle delivers
 the logs of a contract registered during the range, a handler does not need to re-read them.
 
+## Cursor and failures
+
+- The cursor is `fromBlock` in memory. After a cycle it becomes `toBlock + 1` whatever happened in the cycle: the handlers' results do not hold it back.
+- The block event fires at the start of a cycle with the **head**, before the logs of the range are read; it is not a "range done" signal. `getLastProcessedBlock()` returns `toBlock` (head − `latency`) after a cycle.
+- An app saves the cursor itself (core-eth: `getLastBlock()`, the head, in `onModuleDestroy`). A save of the head skips the last `latency` blocks on restart; a crash before the save re-reads from the last saved block.
+- Delivery is at most once per range: an event whose handler rejected, or whose chunk failed to load, is not delivered again.
+- A handler that throws synchronously (not a rejected promise) makes `call()` reject; the error ends the subscription of the queue, its pending count never returns to 0, and the listener stops for good while the process keeps running.
+- `@ethberry/nestjs-solana` and `@ethberry/nestjs-ton` behave differently: they read a whole range first, keep the cursor until every handler succeeded, retry the range, and catch synchronous throws.
+
 ## Errors
 
-- `eth_getLogs` failing: logged as an error, the chunk gives no logs.
+- `eth_getLogs` failing: logged as an error, the chunk gives no logs (and the cursor moves past them).
 - A decode that fails although the selector matched (a wrong ABI for the registered signature): with the `debug`
   option, the log and the error are logged; without it, skipped silently.
-- A handler that rejects: logged as an error; other handlers of the same event still run.
+- A handler that rejects: logged as an error; other handlers of the same event still run; the cursor moves on.
 - No handler for a pattern: logged (`Handler not found for: <route>`).
 
 ## Tests
