@@ -213,10 +213,14 @@ export class ViemService {
 
     return Promise.allSettled(
       discoveredMethodsWithMeta.map(discoveredMethodWithMeta => {
+        // a handler that throws synchronously becomes a rejection like any other: thrown out of here, it would end the
+        // queue's subscription and stop the listener for good
         return this.handlerContext.run(true, () =>
-          (discoveredMethodWithMeta.handler.bind(discoveredMethodWithMeta.instance) as MessageHandler)(
-            description,
-            context,
+          Promise.resolve().then(() =>
+            (discoveredMethodWithMeta.handler.bind(discoveredMethodWithMeta.instance) as MessageHandler)(
+              description,
+              context,
+            ),
           ),
         );
       }),
