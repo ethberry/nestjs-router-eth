@@ -1,6 +1,6 @@
-# nestjs-viem
+# nestjs-router-eth
 
-`@ethberry/nestjs-viem`: a NestJS microservice transport on viem that routes blockchain events to controllers. A single package, not a monorepo.
+`@ethberry/nestjs-router-eth`: a NestJS microservice transport on viem that routes blockchain events to controllers. A single package, not a monorepo.
 
 ## Place in the package levels
 
@@ -12,7 +12,7 @@ Level 1: no dependencies on other `@ethberry/*` runtime packages. Released befor
 - Install: `npm i` (`package-lock.json` is git-ignored here).
 - Build: `npm run build` (`tsc`). Test: `npm run test`. Lint: `npm run lint`.
 - CI (`ci-test.yml`) on a PR: install, build, lint, test.
-- Release: `gh workflow run manual.yml --repo ethberry/nestjs-viem --ref main -f bump=patch|minor|major`. The workflow runs `npm version` and publishes to GitHub Packages and to npmjs (public).
+- Release: `gh workflow run manual.yml --repo ethberry/nestjs-router-eth --ref main -f bump=patch|minor|major`. The workflow runs `npm version` and publishes to GitHub Packages and to npmjs (public).
 
 ## Gotchas
 

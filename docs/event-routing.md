@@ -47,7 +47,7 @@ the logs of a contract registered during the range, a handler does not need to r
 - An app saves the cursor itself (core-eth: `getLastBlock()`, the head, in `onModuleDestroy`). A save of the head skips the last `latency` blocks on restart; a crash before the save re-reads from the last saved block.
 - Delivery is at most once per range: an event whose handler rejected, or whose chunk failed to load, is not delivered again.
 - A handler that throws synchronously is handled like a rejection (below): logged, the listener goes on.
-- `@ethberry/nestjs-solana` and `@ethberry/nestjs-ton` behave differently: they read a whole range first, keep the cursor until every handler succeeded, and retry the range (at least once).
+- `@ethberry/nestjs-router-solana` and `@ethberry/nestjs-router-ton` behave differently: they read a whole range first, keep the cursor until every handler succeeded, and retry the range (at least once).
 
 ## Errors
 

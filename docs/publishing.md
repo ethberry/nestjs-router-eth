@@ -1,4 +1,4 @@
-# Build and publishing — nestjs-viem
+# Build and publishing — nestjs-router-eth
 
 How the packages of this repository are built, what goes into a published package, how versions are chosen and how a release is made. The current state; history is in git.
 
@@ -6,7 +6,9 @@ How the packages of this repository are built, what goes into a published packag
 
 | Package | Folder | tsc target |
 |---|---|---|
-| `@ethberry/nestjs-viem` | `.` | es2022 |
+| `@ethberry/nestjs-router-eth` | `.` | es2022 |
+
+`@ethberry/nestjs-viem` is the former name of this package: deprecated on both registries with a pointer here, its versions stay installable.
 
 ## Build
 
