@@ -1,11 +1,11 @@
-# @ethberry/nestjs-viem
+# @ethberry/nestjs-router-eth
 
 A NestJS transport on viem: reads contract logs block range by block range and routes each decoded event to the controller methods whose `@EventPattern({ contractType, eventName })` matches.
 
 ## Installation
 
 ```shell script
-npm i --save @ethberry/nestjs-viem
+npm i --save @ethberry/nestjs-router-eth
 ```
 
 ## Peers
@@ -51,7 +51,7 @@ A full working setup is [viem.service.spec.ts](src/viem.service.spec.ts).
 - A handler may call `updateRegistry` for a contract it learns about (a factory's `Deployed` event). The listener then reads the current range again for that contract, so its events from the same range are delivered, once.
 - A handler may also call `getPastEvents` itself. That call does not wait for the handlers of its events: they run after the current handler, one at a time. Its events come in addition to the listener's own, so re-reading a new contract's range from a handler delivers those events twice; with the above, there is no need to.
 - Native coin transfers have no log and are not seen.
-- How the cursor moves and what a failure does: [docs/event-routing.md](docs/event-routing.md), "Cursor and failures". A rejected handler does **not** stop the cursor here (unlike `@ethberry/nestjs-solana` and `@ethberry/nestjs-ton`).
+- How the cursor moves and what a failure does: [docs/event-routing.md](docs/event-routing.md), "Cursor and failures". A rejected handler does **not** stop the cursor here (unlike `@ethberry/nestjs-router-solana` and `@ethberry/nestjs-router-ton`).
 
 ## Transport
 
@@ -59,7 +59,7 @@ Build your own clients (a wallet client to send transactions) on `viemTransport(
 
 ```ts
 import { createWalletClient } from "viem";
-import { viemTransport } from "@ethberry/nestjs-viem";
+import { viemTransport } from "@ethberry/nestjs-router-eth";
 
 const wallet = createWalletClient({ account, chain, transport: viemTransport() });
 ```
