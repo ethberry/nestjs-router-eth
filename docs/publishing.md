@@ -10,14 +10,15 @@ How the packages of this repository are built, what goes into a published packag
 
 `@ethberry/nestjs-viem` is the former name of this package: deprecated on npmjs with a pointer here (GitHub Packages has no deprecation), its versions stay installable.
 
-Two lines are published:
+Three lines are published:
 
-| Line | Branch | Module format | NestJS | dist-tag |
-|---|---|---|---|---|
-| current major | `main` | ESM | 12 | `latest` |
-| 1.x | `1.x` | CommonJS | 11 | `release-1` |
+| Line | Branch | Module format | NestJS | Cosmos EVM (`viemTransport`) | dist-tag |
+|---|---|---|---|---|---|
+| 3.x | `main` | ESM | 12 | yes | `latest` |
+| 2.x | `2.x` | ESM | 12 | no | `release-2` |
+| 1.x | `1.x` | CommonJS | 11 | no | `release-1` |
 
-The 1.x line carries the fixes of `main` that apply to Ethereum, without `viemTransport` (the Cosmos EVM workaround, ADR 0001). Its `manual.yml` on `1.x` takes `bump` patch | minor and publishes under `release-1` (a dist-tag must not be a semver range). A consumer on NestJS 11 installs `@ethberry/nestjs-router-eth@release-1`.
+The 1.x and 2.x lines carry the Ethereum fixes of `main`, without `viemTransport` (the Cosmos EVM workaround, ADR 0001 on `main`): their client uses viem's plain `http()`. Their `manual.yml` publishes under their own dist-tag (a dist-tag must not be a semver range), so `latest` stays on `main`. A consumer picks a line by dist-tag: `npm i @ethberry/nestjs-router-eth@release-1` (or `@release-2`).
 
 ## Build
 

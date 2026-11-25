@@ -61,6 +61,8 @@ jobs:
           token: ${{ secrets.GITHUBTOKEN }}
           registry: "https://npm.pkg.github.com"
           ignore-scripts: true
+          # the 2.x line is older than the latest major: its own dist-tag, latest stays on main
+          tag: release-2
 
       - name: Authenticate NPM Registry & Configure Git User
         run: |
@@ -86,6 +88,7 @@ jobs:
           registry: "https://registry.npmjs.org"
           token: ${{ secrets.NPM_TOKEN }}
           ignore-scripts: true
+          tag: release-2
 
       - name: Git push
         run: git push --no-verify && git push --tags --no-verify
