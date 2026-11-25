@@ -1,4 +1,4 @@
-# CI runs on Node.js 24.x
+# CI runs on Node.js 26.x
 name: CI Test
 
 on:
@@ -62,10 +62,10 @@ jobs:
           docker inspect besu | jq '.[0].State'
           docker inspect explorer | jq '.[0].State'
 
-      - name: Use Node.js 24
+      - name: Use Node.js 26
         uses: actions/setup-node@v7
         with:
-          node-version: "24.x"
+          node-version: "26.x"
 
       - name: Install Packages
         run: npm i
