@@ -1,15 +1,16 @@
-import { Controller, Module } from "@nestjs/common";
-import { ConfigModule } from "@nestjs/config";
-import { Test, TestingModule } from "@nestjs/testing";
-import { Ctx, EventPattern, Payload } from "@nestjs/microservices";
-import { CronExpression, SchedulerRegistry } from "@nestjs/schedule";
+import { jest } from "@jest/globals";
+import { Logger } from "@nestjs/common";
+import { DiscoveryService, MetadataScanner, Reflector } from "@nestjs/core";
+import { PATTERN_METADATA } from "@nestjs/microservices/constants";
+import { SchedulerRegistry } from "@nestjs/schedule";
+import { Test } from "@nestjs/testing";
 import { encodeEventTopics, pad, parseAbi } from "viem";
 import type { Hash } from "viem";
 
-import type { IContractOptions, ILogEvent } from "./interfaces";
 import { patchBigInt } from "./utils";
+import type { IContractOptions, ILogEvent } from "./interfaces";
 import { VIEM_CLIENT } from "./viem.constants";
-import { ViemModule } from "./viem.module";
+import { MODULE_OPTIONS_TOKEN } from "./viem.module-definition";
 import { ViemService } from "./viem.service";
 
 // as the apps do: logs carry bigints and are logged as JSON
@@ -69,80 +70,78 @@ const transferLog = (address: Hash, tokenId: bigint) =>
     encodeEventTopics({ abi: tokenAbi, eventName: "Transfer", args: { from: account, to: account, tokenId } }),
   );
 
-// the handlers of the app: a factory's Deployed event registers the new contract
-@Controller()
-class ListenerController {
-  public readonly delivered: string[] = [];
-  // the Deployed handler also calls getPastEvents for the new token itself, as an app may do
-  public rereadOnDeploy = false;
+// rereadOnDeploy: the Deployed handler also calls getPastEvents for the new token itself, as an app may do
+const run = async (registry: IContractOptions[], logs: ITestLog[], rereadOnDeploy = false) => {
+  const delivered: string[] = [];
+  // set after the module compiles; the handlers run only after that
+  const ref: { service?: ViemService } = {};
 
-  constructor(private readonly viemService: ViemService) {}
+  // the handlers of the app: the factory's Deployed event registers the new token
+  class Listener {
+    public async onDeployed({ args }: ILogEvent<{ addr: Hash }>) {
+      // decoded addresses come checksummed
+      delivered.push(`FACTORY:TokenDeployed:${args.addr.toLowerCase()}`);
+      ref.service!.updateRegistry(tokenEntry(args.addr));
+      if (rereadOnDeploy) {
+        await ref.service!.getPastEvents([tokenEntry(args.addr)], 0n, 1n);
+      }
+    }
 
-  @EventPattern({ contractType: "FACTORY", eventName: "TokenDeployed" })
-  public async onDeployed(@Payload() { args }: ILogEvent<{ addr: Hash }>): Promise<void> {
-    // decoded addresses come checksummed
-    this.delivered.push(`FACTORY:TokenDeployed:${args.addr.toLowerCase()}`);
-    this.viemService.updateRegistry(tokenEntry(args.addr));
-    if (this.rereadOnDeploy) {
-      await this.viemService.getPastEvents([tokenEntry(args.addr)], 0n, 1n);
+    public onFactoryDeployed({ args }: ILogEvent<{ addr: Hash }>) {
+      delivered.push(`FACTORY:FactoryDeployed:${args.addr.toLowerCase()}`);
+      ref.service!.updateRegistry(factoryEntry(args.addr));
+    }
+
+    public onTransfer({ args }: ILogEvent<{ tokenId: bigint }>, context: ITestLog) {
+      delivered.push(`TOKEN:Transfer:${context.address}:${args.tokenId}`);
     }
   }
+  const patterns: Record<string, Array<Record<string, string>>> = {
+    onDeployed: [{ contractType: "FACTORY", eventName: "TokenDeployed" }],
+    onFactoryDeployed: [{ contractType: "FACTORY", eventName: "FactoryDeployed" }],
+    onTransfer: [{ contractType: "TOKEN", eventName: "Transfer" }],
+  };
+  const listener = new Listener();
 
-  @EventPattern({ contractType: "FACTORY", eventName: "FactoryDeployed" })
-  public onFactoryDeployed(@Payload() { args }: ILogEvent<{ addr: Hash }>): void {
-    this.delivered.push(`FACTORY:FactoryDeployed:${args.addr.toLowerCase()}`);
-    this.viemService.updateRegistry(factoryEntry(args.addr));
+  const getLogs = jest.fn(({ address }: { address: Hash[] }) =>
+    Promise.resolve(logs.filter(l => address.map(a => a.toLowerCase()).includes(l.address.toLowerCase()))),
+  );
+
+  const module = await Test.createTestingModule({
+    providers: [
+      ViemService,
+      { provide: Logger, useValue: { log: jest.fn(), error: jest.fn(), warn: jest.fn() } },
+      { provide: VIEM_CLIENT, useValue: { getLogs } },
+      { provide: DiscoveryService, useValue: { getControllers: () => [{ instance: listener }] } },
+      { provide: MetadataScanner, useValue: { getAllMethodNames: () => Object.keys(patterns) } },
+      {
+        provide: Reflector,
+        useValue: {
+          get: (key: string, handler: (...args: unknown[]) => unknown) =>
+            key === PATTERN_METADATA
+              ? Object.entries(patterns).find(([name]) => Listener.prototype[name as keyof Listener] === handler)?.[1]
+              : undefined,
+        },
+      },
+      { provide: MODULE_OPTIONS_TOKEN, useValue: { debug: true } },
+      { provide: SchedulerRegistry, useValue: {} },
+    ],
+  }).compile();
+  const service = module.get(ViemService);
+  ref.service = service;
+
+  for (const entry of registry) {
+    service.updateRegistry(entry);
   }
+  await service.getPastEvents(service.getRegistry(), 0n, 1n);
 
-  @EventPattern({ contractType: "TOKEN", eventName: "Transfer" })
-  public onTransfer(@Payload() { args }: ILogEvent<{ tokenId: bigint }>, @Ctx() context: ITestLog): void {
-    this.delivered.push(`TOKEN:Transfer:${context.address}:${args.tokenId}`);
-  }
-}
-
-@Module({
-  imports: [ViemModule.register({ fromBlock: 0n, latency: 0n, debug: true, cron: CronExpression.EVERY_SECOND })],
-  controllers: [ListenerController],
-})
-class TestViemModule {}
+  return { delivered, getLogs };
+};
 
 describe("ViemService.getPastEvents: a contract added to the registry during a range", function () {
-  const modules: TestingModule[] = [];
-
   beforeEach(function () {
     logIndex = 0;
   });
-
-  afterEach(async function () {
-    await Promise.all(modules.splice(0).map(moduleRef => moduleRef.close()));
-  });
-
-  const run = async (registry: IContractOptions[], logs: ITestLog[], rereadOnDeploy = false) => {
-    const getLogs = jest.fn(({ address }: { address: Hash[] }) =>
-      Promise.resolve(logs.filter(l => address.map(a => a.toLowerCase()).includes(l.address.toLowerCase()))),
-    );
-    const moduleRef = await Test.createTestingModule({
-      imports: [ConfigModule.forRoot(), TestViemModule],
-    })
-      .overrideProvider(VIEM_CLIENT)
-      .useValue({ getLogs, getBlockNumber: jest.fn() })
-      .compile();
-    modules.push(moduleRef);
-    await moduleRef.init();
-    moduleRef
-      .get(SchedulerRegistry)
-      .getCronJobs()
-      .forEach(job => job.stop());
-
-    moduleRef.get(ListenerController).rereadOnDeploy = rereadOnDeploy;
-    const service = moduleRef.get(ViemService);
-    for (const entry of registry) {
-      service.updateRegistry(entry);
-    }
-    await service.getPastEvents(service.getRegistry(), 0n, 1n);
-
-    return { delivered: moduleRef.get(ListenerController).delivered, getLogs };
-  };
 
   it("delivers the logs of a contract that a handler registers in the same range, once", async function () {
     const { delivered } = await run([factoryEntry()], [deployedLog(tokenA), transferLog(tokenA, 1n)]);
