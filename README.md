@@ -1,11 +1,12 @@
-# NestJS Viem Transport
+# NestJS Router ETH (1.x, CommonJS)
 
-Ethereum transport routes blockchain events directly to controllers
+Ethereum transport routes blockchain events directly to controllers. The 1.x line is CommonJS for NestJS 11; the
+current ESM line for NestJS 12 is on `main`. `@ethberry/nestjs-viem` is the former name of this package.
 
 ## Installation
 
 ```shell script
-$ npm i --save @ethberry/nestjs-viem
+$ npm i --save @ethberry/nestjs-router-eth@release-1
 ```
 
 ### Code quality

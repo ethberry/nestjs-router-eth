@@ -2,21 +2,21 @@ import { AsyncLocalStorage } from "node:async_hooks";
 
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { LoggerService } from "@nestjs/common";
+import { DiscoveryService, MetadataScanner, Reflector } from "@nestjs/core";
 import { MessageHandler } from "@nestjs/microservices";
-import { transformPatternToRoute } from "@nestjs/microservices/utils";
+import { transformPatternToRoute } from "@nestjs/microservices/utils/index.js";
 import { PATTERN_METADATA } from "@nestjs/microservices/constants";
 import { SchedulerRegistry } from "@nestjs/schedule";
 import { CronJob } from "cron";
 import { EMPTY, from, Observable, Subject } from "rxjs";
 import { finalize, mergeAll, mergeMap } from "rxjs/operators";
-import { DiscoveredMethodWithMeta, DiscoveryService } from "@golevelup/nestjs-discovery";
-import { decodeEventLog, Hash } from "viem";
+import { decodeEventLog, Hash, toEventSelector } from "viem";
 import type { PublicClient } from "viem";
 
 import { getPastEvents } from "./utils/get-past-events";
 import { BLOCK_EVENT, VIEM_CLIENT } from "./viem.constants";
 import { MODULE_OPTIONS_TOKEN } from "./viem.module-definition";
-import type { IContractOptions, ILogEvent, IViemModuleOptions } from "./interfaces";
+import type { IContractOptions, IDiscoveredHandler, ILogEvent, IViemModuleOptions } from "./interfaces";
 
 const blockPattern = { eventName: BLOCK_EVENT };
 
@@ -46,6 +46,8 @@ export class ViemService {
     @Inject(VIEM_CLIENT)
     protected readonly client: PublicClient,
     protected readonly discoveryService: DiscoveryService,
+    protected readonly metadataScanner: MetadataScanner,
+    protected readonly reflector: Reflector,
     @Inject(MODULE_OPTIONS_TOKEN)
     protected options: IViemModuleOptions,
     protected schedulerRegistry: SchedulerRegistry,
@@ -130,8 +132,8 @@ export class ViemService {
     }
 
     // a handler can add to the registry while the range is processed (a factory's Deployed event adds the new
-    // contract): after a pass and all queued handlers, the range is fetched again for the entry addresses that
-    // appeared during it, until no new one appears
+    // contract): after a pass and all queued handlers, the range is fetched again for what appeared during it, until
+    // nothing new appears
     const fetched = new Set<string>();
     let pass = this.notFetched(registry, fetched);
     while (pass.length) {
@@ -168,13 +170,32 @@ export class ViemService {
     });
   }
 
-  protected async getHandlerByPattern<T extends Array<Record<string, string>>>(
+  protected getHandlerByPattern<T extends Array<Record<string, string>>>(
     route: string,
-  ): Promise<Array<DiscoveredMethodWithMeta<T>>> {
-    const methods = await this.discoveryService.controllerMethodsWithMetaAtKey<T>(PATTERN_METADATA);
-    return methods.filter(method => {
-      return method.meta.some(meta => transformPatternToRoute(meta) === route);
-    });
+  ): Promise<Array<IDiscoveredHandler<T>>> {
+    const methods: Array<IDiscoveredHandler<T>> = [];
+    for (const wrapper of this.discoveryService.getControllers()) {
+      const instance: unknown = wrapper.instance;
+      if (!instance || typeof instance !== "object") {
+        continue;
+      }
+      const prototype = Object.getPrototypeOf(instance) as Record<string, unknown>;
+      for (const methodName of this.metadataScanner.getAllMethodNames(prototype)) {
+        const handler = prototype[methodName];
+        if (typeof handler !== "function") {
+          continue;
+        }
+        const meta = this.reflector.get<T | undefined>(PATTERN_METADATA, handler);
+        if (meta) {
+          methods.push({ meta, methodName, handler: handler as IDiscoveredHandler<T>["handler"], instance });
+        }
+      }
+    }
+    return Promise.resolve(
+      methods.filter(method => {
+        return method.meta.some(meta => transformPatternToRoute(meta) === route);
+      }),
+    );
   }
 
   protected async call(
@@ -192,12 +213,15 @@ export class ViemService {
 
     return Promise.allSettled(
       discoveredMethodsWithMeta.map(discoveredMethodWithMeta => {
+        // a handler that throws synchronously becomes a rejection like any other: thrown out of here, it would end the
+        // queue's subscription and stop the listener for good
         return this.handlerContext.run(true, () =>
-          (
-            discoveredMethodWithMeta.discoveredMethod.handler.bind(
-              discoveredMethodWithMeta.discoveredMethod.parentClass.instance,
-            ) as MessageHandler
-          )(description, context),
+          Promise.resolve().then(() =>
+            (discoveredMethodWithMeta.handler.bind(discoveredMethodWithMeta.instance) as MessageHandler)(
+              description,
+              context,
+            ),
+          ),
         );
       }),
     ).then(res => {
@@ -251,19 +275,27 @@ export class ViemService {
     return this.getHandlerByPattern(transformPatternToRoute(blockPattern));
   }
 
-  // the part of the registry whose logs this range has not fetched yet: each entry with the addresses not fetched for
-  // it. The 1.x line decodes a log with every entry on its address (no event selector check), so a pass is per address
-  // and entry type: all logs of such an address are new for that entry, and none is delivered twice.
+  // the part of the registry whose logs this range has not fetched yet: per entry, each address with the signatures
+  // not fetched for it; addresses with the same such signatures share one entry
   private notFetched(registry: IContractOptions[], fetched: Set<string>): IContractOptions[] {
     const pass: IContractOptions[] = [];
     for (const entry of registry) {
-      const key = (address: string) => `${entry.contractType} ${address.toLowerCase()}`;
-      const contractAddress = entry.contractAddress.filter(address => !fetched.has(key(address)));
-      if (!contractAddress.length) {
-        continue;
+      const groups = new Map<string, IContractOptions>();
+      for (const address of entry.contractAddress) {
+        const key = (signature: string) => `${entry.contractType} ${address.toLowerCase()} ${signature}`;
+        const eventSignatures = entry.eventSignatures.filter(signature => !fetched.has(key(signature)));
+        if (!eventSignatures.length) {
+          continue;
+        }
+        eventSignatures.forEach(signature => fetched.add(key(signature)));
+        const group = groups.get(eventSignatures.join("\n"));
+        if (group) {
+          group.contractAddress.push(address);
+        } else {
+          groups.set(eventSignatures.join("\n"), { ...entry, contractAddress: [address], eventSignatures });
+        }
       }
-      contractAddress.forEach(address => fetched.add(key(address)));
-      pass.push({ ...entry, contractAddress });
+      pass.push(...groups.values());
     }
     return pass;
   }
@@ -283,9 +315,18 @@ export class ViemService {
       return [];
     });
 
+    // one address can sit in several entries (a token and its access-control or ownable entry): an entry decodes only
+    // the logs of its own events, so a decode error left after this is a real one
+    const selectors = registry.map(
+      entry => new Set(entry.eventSignatures.map(signature => toEventSelector(signature))),
+    );
+
     for (const log of logs) {
-      for (const entry of registry) {
+      for (const [index, entry] of registry.entries()) {
         if (!entry.contractAddress.map(a => a.toLowerCase()).includes(log.address.toLowerCase())) {
+          continue;
+        }
+        if (!selectors[index].has(log.topics[0]!)) {
           continue;
         }
 
@@ -300,7 +341,7 @@ export class ViemService {
           this.loggerService.log(JSON.stringify(logDescription, null, "\t"), `${ViemService.name}-${this.instanceId}`);
 
           const description = {
-            // a log that decoded with the entry's ABI has its event name
+            // the selector matched one of the entry's events, so the decoded log has its name
             name: logDescription.eventName!,
             args: logDescription.args,
           };

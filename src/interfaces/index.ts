@@ -2,3 +2,4 @@ export * from "./module";
 export * from "./contract";
 export * from "./log";
 export * from "./block";
+export * from "./handler";
