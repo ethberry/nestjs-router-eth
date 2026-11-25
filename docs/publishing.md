@@ -8,7 +8,16 @@ How the packages of this repository are built, what goes into a published packag
 |---|---|---|
 | `@ethberry/nestjs-router-eth` | `.` | es2022 |
 
-`@ethberry/nestjs-viem` is the former name of this package: deprecated on both registries with a pointer here, its versions stay installable.
+`@ethberry/nestjs-viem` is the former name of this package: deprecated on npmjs with a pointer here (GitHub Packages has no deprecation), its versions stay installable.
+
+Two lines are published:
+
+| Line | Branch | Module format | NestJS | dist-tag |
+|---|---|---|---|---|
+| current major | `main` | ESM | 12 | `latest` |
+| 1.x | `1.x` | CommonJS | 11 | `release-1` |
+
+The 1.x line carries the fixes of `main` that apply to Ethereum, without `viemTransport` (the Cosmos EVM workaround, ADR 0001). Its `manual.yml` on `1.x` takes `bump` patch | minor and publishes under `release-1` (a dist-tag must not be a semver range). A consumer on NestJS 11 installs `@ethberry/nestjs-router-eth@release-1`.
 
 ## Build
 
