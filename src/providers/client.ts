@@ -1,7 +1,7 @@
 import type { PublicClient } from "viem";
 import { Chain, createPublicClient, http } from "viem";
 
-import { ETH_CLIENT } from "../eth.constants";
+import { ETH_CLIENT } from "../eth-router.constants";
 import { CHAIN_PROVIDER } from "./chain";
 
 export const ethClientProvider = {

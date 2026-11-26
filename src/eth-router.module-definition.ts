@@ -1,6 +1,6 @@
 import { ConfigurableModuleBuilder } from "@nestjs/common";
 
-import { IEthModuleOptions } from "./interfaces";
+import { IEthRouterModuleOptions } from "./interfaces";
 
 export const { ConfigurableModuleClass, MODULE_OPTIONS_TOKEN } =
-  new ConfigurableModuleBuilder<IEthModuleOptions>().build();
+  new ConfigurableModuleBuilder<IEthRouterModuleOptions>().build();

@@ -5,10 +5,10 @@ import { Test, TestingModule } from "@nestjs/testing";
 import { Ctx, EventPattern, Payload } from "@nestjs/microservices";
 import { CronExpression, SchedulerRegistry } from "@nestjs/schedule";
 
-import type { IBlockEvent, ILogEvent, IEthModuleOptions } from "./interfaces";
-import { BLOCK_EVENT, ETH_CLIENT } from "./eth.constants";
-import { EthModule } from "./eth.module";
-import { EthService } from "./eth.service";
+import type { IBlockEvent, ILogEvent, IEthRouterModuleOptions } from "./interfaces";
+import { BLOCK_EVENT, ETH_CLIENT } from "./eth-router.constants";
+import { EthRouterModule } from "./eth-router.module";
+import { EthRouterService } from "./eth-router.service";
 
 @Controller()
 class BlockController {
@@ -20,7 +20,7 @@ class BlockController {
   }
 }
 
-function moduleOptions(fromBlock: bigint, latency: bigint): IEthModuleOptions {
+function moduleOptions(fromBlock: bigint, latency: bigint): IEthRouterModuleOptions {
   return {
     fromBlock,
     latency,
@@ -29,9 +29,9 @@ function moduleOptions(fromBlock: bigint, latency: bigint): IEthModuleOptions {
   };
 }
 
-function testModule(options: IEthModuleOptions, controllers: Array<typeof BlockController>) {
+function testModule(options: IEthRouterModuleOptions, controllers: Array<typeof BlockController>) {
   @Module({
-    imports: [EthModule.register(options)],
+    imports: [EthRouterModule.register(options)],
     controllers,
   })
   class TestEthModule {}
@@ -41,7 +41,7 @@ function testModule(options: IEthModuleOptions, controllers: Array<typeof BlockC
 
 async function createModule(
   client: { getBlockNumber: jest.Mock; getLogs: jest.Mock },
-  options: IEthModuleOptions,
+  options: IEthRouterModuleOptions,
   controllers: Array<typeof BlockController> = [],
 ): Promise<TestingModule> {
   const moduleRef = await Test.createTestingModule({
@@ -78,7 +78,7 @@ describe("block events", function () {
     const moduleRef = await createModule({ getBlockNumber, getLogs: jest.fn<(...args: any[]) => any>() }, options);
     modules.push(moduleRef);
 
-    await moduleRef.get(EthService).listen();
+    await moduleRef.get(EthRouterService).listen();
 
     expect(getBlockNumber).not.toHaveBeenCalled();
     expect(options.fromBlock).toBe(4n);
@@ -93,7 +93,7 @@ describe("block events", function () {
     modules.push(moduleRef);
     const seen = moduleRef.get(BlockController).seen;
 
-    await moduleRef.get(EthService).listen();
+    await moduleRef.get(EthRouterService).listen();
     await drain(() => seen.length === 1);
 
     expect(seen.map(item => item.event.args.blockNumber)).toEqual([10n]);
@@ -102,7 +102,7 @@ describe("block events", function () {
     // no contracts registered: nothing was read, the cursor stays for the contracts registered later
     expect(options.fromBlock).toBe(7n);
 
-    await moduleRef.get(EthService).listen();
+    await moduleRef.get(EthRouterService).listen();
     await drain(() => seen.length === 2);
 
     expect(seen.map(item => item.event.args.blockNumber)).toEqual([10n, 11n]);
@@ -116,7 +116,7 @@ describe("block events", function () {
     const options = moduleOptions(5n, 0n);
     const moduleRef = await createModule({ getBlockNumber, getLogs }, options);
     modules.push(moduleRef);
-    const service = moduleRef.get(EthService);
+    const service = moduleRef.get(EthRouterService);
     service.updateRegistry({
       contractType: "ERC20_TOKEN",
       contractAddress: ["0x0000000000000000000000000000000000000001"],

@@ -18,8 +18,13 @@ npm t
 
 ### How to use:
 
-Import `EthModule` (`EthModule.register(options)` or `registerAsync`, options `IEthModuleOptions`) and inject
-`EthService`; the viem client is under the `ETH_CLIENT` token, the account under `ETH_ACCOUNT`. Check [eth.service.spec.ts](src/eth.service.spec.ts)
+Import `EthRouterModule` (`EthRouterModule.register(options)` or `registerAsync`, options `IEthRouterModuleOptions`)
+and inject `EthRouterService`; the viem client is under the `ETH_CLIENT` token, the account under `ETH_ACCOUNT`. Check
+[eth-router.service.spec.ts](src/eth-router.service.spec.ts)
+
+The router never serializes logs or event args to JSON. They hold bigints: an app that logs or stores them as JSON
+patches `BigInt.prototype.toJSON` itself. A log that does not fit its entry's ABI is logged with its
+`transactionHash:logIndex` and skipped; the `debug` option also logs the decode error.
 
 ### Contracts registered from a handler
 
