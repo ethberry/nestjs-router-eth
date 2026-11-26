@@ -9,9 +9,9 @@ import type { Hash } from "viem";
 
 import { patchBigInt } from "./utils/index.js";
 import type { IContractOptions, ILogEvent } from "./interfaces/index.js";
-import { VIEM_CLIENT } from "./viem.constants.js";
-import { MODULE_OPTIONS_TOKEN } from "./viem.module-definition.js";
-import { ViemService } from "./viem.service.js";
+import { ETH_CLIENT } from "./eth.constants.js";
+import { MODULE_OPTIONS_TOKEN } from "./eth.module-definition.js";
+import { EthService } from "./eth.service.js";
 
 // as the apps do: logs carry bigints and are logged as JSON
 patchBigInt();
@@ -74,7 +74,7 @@ const transferLog = (address: Hash, tokenId: bigint) =>
 const run = async (registry: IContractOptions[], logs: ITestLog[], rereadOnDeploy = false) => {
   const delivered: string[] = [];
   // set after the module compiles; the handlers run only after that
-  const ref: { service?: ViemService } = {};
+  const ref: { service?: EthService } = {};
 
   // the handlers of the app: the factory's Deployed event registers the new token
   class Listener {
@@ -109,9 +109,9 @@ const run = async (registry: IContractOptions[], logs: ITestLog[], rereadOnDeplo
 
   const module = await Test.createTestingModule({
     providers: [
-      ViemService,
+      EthService,
       { provide: Logger, useValue: { log: jest.fn(), error: jest.fn(), warn: jest.fn() } },
-      { provide: VIEM_CLIENT, useValue: { getLogs } },
+      { provide: ETH_CLIENT, useValue: { getLogs } },
       { provide: DiscoveryService, useValue: { getControllers: () => [{ instance: listener }] } },
       { provide: MetadataScanner, useValue: { getAllMethodNames: () => Object.keys(patterns) } },
       {
@@ -127,7 +127,7 @@ const run = async (registry: IContractOptions[], logs: ITestLog[], rereadOnDeplo
       { provide: SchedulerRegistry, useValue: {} },
     ],
   }).compile();
-  const service = module.get(ViemService);
+  const service = module.get(EthService);
   ref.service = service;
 
   for (const entry of registry) {
@@ -138,7 +138,7 @@ const run = async (registry: IContractOptions[], logs: ITestLog[], rereadOnDeplo
   return { delivered, getLogs };
 };
 
-describe("ViemService.getPastEvents: a contract added to the registry during a range", function () {
+describe("EthService.getPastEvents: a contract added to the registry during a range", function () {
   beforeEach(function () {
     logIndex = 0;
   });
