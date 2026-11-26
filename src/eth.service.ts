@@ -14,9 +14,9 @@ import { decodeEventLog, Hash, toEventSelector } from "viem";
 import type { PublicClient } from "viem";
 
 import { getPastEvents } from "./utils/get-past-events";
-import { BLOCK_EVENT, VIEM_CLIENT } from "./viem.constants";
-import { MODULE_OPTIONS_TOKEN } from "./viem.module-definition";
-import type { IContractOptions, IDiscoveredHandler, ILogEvent, IViemModuleOptions } from "./interfaces";
+import { BLOCK_EVENT, ETH_CLIENT } from "./eth.constants";
+import { MODULE_OPTIONS_TOKEN } from "./eth.module-definition";
+import type { IBlockEvent, IContractOptions, IDiscoveredHandler, ILogEvent, IEthModuleOptions } from "./interfaces";
 
 const blockPattern = { eventName: BLOCK_EVENT };
 
@@ -28,10 +28,9 @@ interface IRoutedEvent {
 }
 
 @Injectable()
-export class ViemService {
+export class EthService {
   private instanceId: string;
   private cronLock = false;
-  private toBlock = 0n;
   private registry: IContractOptions[] = [];
   private subject = new Subject<IRoutedEvent>();
   // events emitted whose handlers have not finished, and who waits for that number to reach 0
@@ -43,13 +42,13 @@ export class ViemService {
   constructor(
     @Inject(Logger)
     protected readonly loggerService: LoggerService,
-    @Inject(VIEM_CLIENT)
+    @Inject(ETH_CLIENT)
     protected readonly client: PublicClient,
     protected readonly discoveryService: DiscoveryService,
     protected readonly metadataScanner: MetadataScanner,
     protected readonly reflector: Reflector,
     @Inject(MODULE_OPTIONS_TOKEN)
-    protected options: IViemModuleOptions,
+    protected options: IEthModuleOptions,
     protected schedulerRegistry: SchedulerRegistry,
   ) {
     this.subject
@@ -65,13 +64,13 @@ export class ViemService {
       )
       .subscribe({
         next: v => {
-          loggerService.log(v, `${ViemService.name}-${this.instanceId}`);
+          loggerService.log(v, `${EthService.name}-${this.instanceId}`);
         },
         error: e => {
           loggerService.error(e);
         },
         complete: () => {
-          loggerService.log("complete", `${ViemService.name}-${this.instanceId}`);
+          loggerService.log("complete", `${EthService.name}-${this.instanceId}`);
         },
       });
   }
@@ -90,8 +89,11 @@ export class ViemService {
         return;
       }
       this.cronLock = true;
-      await this.listen();
-      this.cronLock = false;
+      try {
+        await this.listen();
+      } finally {
+        this.cronLock = false;
+      }
     });
 
     this.schedulerRegistry.addCronJob(`ethListener_${this.instanceId}`, job);
@@ -105,17 +107,36 @@ export class ViemService {
       return;
     }
 
-    const head = await this.getLastBlock();
-    await this.emitBlock(head);
-
-    this.toBlock = head - this.options.latency;
-    // waiting for confirmation
-    if (this.options.fromBlock > this.toBlock) {
+    // an RPC error on the head skips the tick: no block event, the cursor stays
+    const head = await this.getLastBlock().catch((e: unknown) => {
+      this.logError(e);
+      return null;
+    });
+    if (head === null) {
       return;
     }
 
-    await this.collectLogs();
-    this.options.fromBlock = this.toBlock + 1n;
+    await this.emitBlock(head);
+
+    const toBlock = head - this.options.latency;
+    // no contracts yet (the app registers them later), or waiting for confirmation: the cursor stays
+    if (!this.registry.length || this.options.fromBlock > toBlock) {
+      return;
+    }
+
+    this.loggerService.log(
+      `getPastEvents No: ${this.options.fromBlock} - ${toBlock}`,
+      `${EthService.name}-${this.instanceId}`,
+    );
+    // a failed eth_getLogs ends the tick: the cursor stays and the next tick reads the range again; a rejected handler
+    // is logged and does not hold the range back (each event is delivered once)
+    try {
+      await this.getPastEvents(this.registry, this.options.fromBlock, toBlock, this.options.chunkSize);
+    } catch (e) {
+      this.logError(e);
+      return;
+    }
+    this.options.fromBlock = toBlock + 1n;
   }
 
   public async getPastEvents(
@@ -155,7 +176,7 @@ export class ViemService {
 
     this.loggerService.log(
       `ETH Listener updated: ${contract.contractAddress.join(", ")}`,
-      `${ViemService.name}-${this.instanceId}`,
+      `${EthService.name}-${this.instanceId}`,
     );
   }
 
@@ -163,11 +184,9 @@ export class ViemService {
     return this.registry;
   }
 
-  public async getLastBlock(): Promise<bigint> {
-    return await this.client.getBlockNumber().catch(e => {
-      this.loggerService.error(JSON.stringify(e, null, "\t"), `${ViemService.name}-${this.instanceId}`);
-      return 0n;
-    });
+  // rejects on an RPC error
+  public getLastBlock(): Promise<bigint> {
+    return this.client.getBlockNumber();
   }
 
   protected getHandlerByPattern<T extends Array<Record<string, string>>>(
@@ -207,7 +226,7 @@ export class ViemService {
     const discoveredMethodsWithMeta = await this.getHandlerByPattern(route);
 
     if (!discoveredMethodsWithMeta.length) {
-      this.loggerService.log(`Handler not found for: ${route}`, `${ViemService.name}-${this.instanceId}`);
+      this.loggerService.log(`Handler not found for: ${route}`, `${EthService.name}-${this.instanceId}`);
       return Promise.resolve(EMPTY);
     }
 
@@ -227,31 +246,21 @@ export class ViemService {
     ).then(res => {
       res.forEach(r => {
         if (r.status === "rejected") {
-          this.loggerService.error(r.reason, `${ViemService.name}-${this.instanceId}`);
+          this.loggerService.error(r.reason, `${EthService.name}-${this.instanceId}`);
         }
       });
       return from(["OK"]);
     });
   }
 
-  public getLastProcessedBlock() {
-    return this.toBlock;
+  // the last block whose logs and handlers have all completed; before the first such range, the block before the start
+  // (0n when the start is block 0)
+  public getLastProcessedBlock(): bigint {
+    return this.options.fromBlock > 0n ? this.options.fromBlock - 1n : 0n;
   }
 
   public destroy(): void {
     this.subject.complete();
-  }
-
-  private async collectLogs(): Promise<void> {
-    if (!this.registry.length) {
-      return;
-    }
-
-    this.loggerService.log(
-      `getPastEvents No: ${this.options.fromBlock} - ${this.toBlock}`,
-      `${ViemService.name}-${this.instanceId}`,
-    );
-    await this.getPastEvents(this.registry, this.options.fromBlock, this.toBlock, this.options.chunkSize);
   }
 
   private async emitBlock(blockNumber: bigint): Promise<void> {
@@ -260,7 +269,7 @@ export class ViemService {
       return;
     }
 
-    const args = { blockNumber };
+    const args: IBlockEvent = { blockNumber, processedBlockNumber: this.getLastProcessedBlock() };
     this.emit({
       pattern: blockPattern,
       description: {
@@ -269,6 +278,8 @@ export class ViemService {
       },
       log: args,
     });
+    // the block handlers finish before the logs are read; their rejections do not hold the range back
+    await this.drained();
   }
 
   private blockHandlers() {
@@ -310,10 +321,8 @@ export class ViemService {
     const allAddress = registry.reduce<Hash[]>((memo, current) => memo.concat(current.contractAddress as Hash[]), []);
     const allSignatures = registry.reduce<string[]>((memo, current) => memo.concat(current.eventSignatures), []);
 
-    const logs = await getPastEvents(this.client, allAddress, allSignatures, fromBlock, toBlock, chunkSize).catch(e => {
-      this.loggerService.error(JSON.stringify(e, null, "\t"), `${ViemService.name}-${this.instanceId}`);
-      return [];
-    });
+    // an RPC error rejects: the range must not look empty
+    const logs = await getPastEvents(this.client, allAddress, allSignatures, fromBlock, toBlock, chunkSize);
 
     // one address can sit in several entries (a token and its access-control or ownable entry): an entry decodes only
     // the logs of its own events, so a decode error left after this is a real one
@@ -338,7 +347,7 @@ export class ViemService {
             topics: log.topics,
           });
 
-          this.loggerService.log(JSON.stringify(logDescription, null, "\t"), `${ViemService.name}-${this.instanceId}`);
+          this.loggerService.log(JSON.stringify(logDescription, null, "\t"), `${EthService.name}-${this.instanceId}`);
 
           const description = {
             // the selector matched one of the entry's events, so the decoded log has its name
@@ -356,13 +365,17 @@ export class ViemService {
           });
         } catch (e: unknown) {
           if (this.options.debug) {
-            this.loggerService.log("CAN'T PARSE LOG", `${ViemService.name}-${this.instanceId}`);
-            this.loggerService.log(JSON.stringify(log, null, "\t"), `${ViemService.name}-${this.instanceId}`);
+            this.loggerService.log("CAN'T PARSE LOG", `${EthService.name}-${this.instanceId}`);
+            this.loggerService.log(JSON.stringify(log, null, "\t"), `${EthService.name}-${this.instanceId}`);
             this.loggerService.error(e); // DecodeLogDataMismatch
           }
         }
       }
     }
+  }
+
+  private logError(e: unknown): void {
+    this.loggerService.error(e, `${EthService.name}-${this.instanceId}`);
   }
 
   private emit(event: IRoutedEvent): void {

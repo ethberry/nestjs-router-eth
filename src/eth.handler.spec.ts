@@ -9,9 +9,9 @@ import type { Hash } from "viem";
 
 import { patchBigInt } from "./utils";
 import type { IContractOptions, ILogEvent } from "./interfaces";
-import { VIEM_CLIENT } from "./viem.constants";
-import { MODULE_OPTIONS_TOKEN } from "./viem.module-definition";
-import { ViemService } from "./viem.service";
+import { ETH_CLIENT } from "./eth.constants";
+import { MODULE_OPTIONS_TOKEN } from "./eth.module-definition";
+import { EthService } from "./eth.service";
 
 // as the apps do: logs carry bigints and are logged as JSON
 patchBigInt();
@@ -38,7 +38,7 @@ const transferLog = (tokenId: bigint, logIndex: number) => ({
   logIndex,
 });
 
-describe("ViemService with a handler that throws synchronously", function () {
+describe("EthService with a handler that throws synchronously", function () {
   it("logs the throw, delivers the other events and keeps listening", async function () {
     const delivered: bigint[] = [];
     // the handler of the app: token 1 makes it throw before it returns a promise
@@ -57,9 +57,9 @@ describe("ViemService with a handler that throws synchronously", function () {
 
     const module = await Test.createTestingModule({
       providers: [
-        ViemService,
+        EthService,
         { provide: Logger, useValue: { log: jest.fn(), error, warn: jest.fn() } },
-        { provide: VIEM_CLIENT, useValue: { getLogs: () => Promise.resolve(logs) } },
+        { provide: ETH_CLIENT, useValue: { getLogs: () => Promise.resolve(logs) } },
         { provide: DiscoveryService, useValue: { getControllers: () => [{ instance: listener }] } },
         { provide: MetadataScanner, useValue: { getAllMethodNames: () => ["onTransfer"] } },
         {
@@ -75,7 +75,7 @@ describe("ViemService with a handler that throws synchronously", function () {
         { provide: SchedulerRegistry, useValue: {} },
       ],
     }).compile();
-    const service = module.get(ViemService);
+    const service = module.get(EthService);
     service.updateRegistry(tokenEntry);
 
     await service.getPastEvents(service.getRegistry(), 0n, 1n);

@@ -5,10 +5,10 @@ import { Test, TestingModule } from "@nestjs/testing";
 import { Ctx, EventPattern, Payload } from "@nestjs/microservices";
 import { CronExpression, SchedulerRegistry } from "@nestjs/schedule";
 
-import type { IBlockEvent, ILogEvent, IViemModuleOptions } from "./interfaces";
-import { BLOCK_EVENT, VIEM_CLIENT } from "./viem.constants";
-import { ViemModule } from "./viem.module";
-import { ViemService } from "./viem.service";
+import type { IBlockEvent, ILogEvent, IEthModuleOptions } from "./interfaces";
+import { BLOCK_EVENT, ETH_CLIENT } from "./eth.constants";
+import { EthModule } from "./eth.module";
+import { EthService } from "./eth.service";
 
 @Controller()
 class BlockController {
@@ -20,7 +20,7 @@ class BlockController {
   }
 }
 
-function moduleOptions(fromBlock: bigint, latency: bigint): IViemModuleOptions {
+function moduleOptions(fromBlock: bigint, latency: bigint): IEthModuleOptions {
   return {
     fromBlock,
     latency,
@@ -29,25 +29,25 @@ function moduleOptions(fromBlock: bigint, latency: bigint): IViemModuleOptions {
   };
 }
 
-function testModule(options: IViemModuleOptions, controllers: Array<typeof BlockController>) {
+function testModule(options: IEthModuleOptions, controllers: Array<typeof BlockController>) {
   @Module({
-    imports: [ViemModule.register(options)],
+    imports: [EthModule.register(options)],
     controllers,
   })
-  class TestViemModule {}
+  class TestEthModule {}
 
-  return TestViemModule;
+  return TestEthModule;
 }
 
 async function createModule(
   client: { getBlockNumber: jest.Mock; getLogs: jest.Mock },
-  options: IViemModuleOptions,
+  options: IEthModuleOptions,
   controllers: Array<typeof BlockController> = [],
 ): Promise<TestingModule> {
   const moduleRef = await Test.createTestingModule({
     imports: [ConfigModule.forRoot(), testModule(options, controllers)],
   })
-    .overrideProvider(VIEM_CLIENT)
+    .overrideProvider(ETH_CLIENT)
     .useValue(client)
     .compile();
 
@@ -78,13 +78,13 @@ describe("block events", function () {
     const moduleRef = await createModule({ getBlockNumber, getLogs: jest.fn<(...args: any[]) => any>() }, options);
     modules.push(moduleRef);
 
-    await moduleRef.get(ViemService).listen();
+    await moduleRef.get(EthService).listen();
 
     expect(getBlockNumber).not.toHaveBeenCalled();
     expect(options.fromBlock).toBe(4n);
   });
 
-  it("should emit the fresh head and keep the log cursor behind latency", async function () {
+  it("should emit the fresh head and keep the cursor while no contract is registered", async function () {
     const getBlockNumber = jest.fn<(...args: any[]) => any>().mockResolvedValueOnce(10n).mockResolvedValueOnce(11n);
     const options = moduleOptions(7n, 2n);
     const moduleRef = await createModule({ getBlockNumber, getLogs: jest.fn<(...args: any[]) => any>() }, options, [
@@ -93,19 +93,21 @@ describe("block events", function () {
     modules.push(moduleRef);
     const seen = moduleRef.get(BlockController).seen;
 
-    await moduleRef.get(ViemService).listen();
+    await moduleRef.get(EthService).listen();
     await drain(() => seen.length === 1);
 
     expect(seen.map(item => item.event.args.blockNumber)).toEqual([10n]);
     expect(seen.map(item => item.event.name)).toEqual([BLOCK_EVENT]);
     expect(seen.map(item => item.ctx.blockNumber)).toEqual([10n]);
-    expect(options.fromBlock).toBe(9n);
+    // no contracts registered: nothing was read, the cursor stays for the contracts registered later
+    expect(options.fromBlock).toBe(7n);
 
-    await moduleRef.get(ViemService).listen();
+    await moduleRef.get(EthService).listen();
     await drain(() => seen.length === 2);
 
     expect(seen.map(item => item.event.args.blockNumber)).toEqual([10n, 11n]);
-    expect(options.fromBlock).toBe(10n);
+    expect(seen.map(item => item.event.args.processedBlockNumber)).toEqual([6n, 6n]);
+    expect(options.fromBlock).toBe(7n);
   });
 
   it("should keep scanning contracts when no block handler is registered", async function () {
@@ -114,7 +116,7 @@ describe("block events", function () {
     const options = moduleOptions(5n, 0n);
     const moduleRef = await createModule({ getBlockNumber, getLogs }, options);
     modules.push(moduleRef);
-    const service = moduleRef.get(ViemService);
+    const service = moduleRef.get(EthService);
     service.updateRegistry({
       contractType: "ERC20_TOKEN",
       contractAddress: ["0x0000000000000000000000000000000000000001"],
