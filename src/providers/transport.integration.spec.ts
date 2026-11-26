@@ -2,7 +2,7 @@ import { createPublicClient, createWalletClient, defineChain, parseAbi } from "v
 import type { Hex } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 
-import { viemTransport } from "./transport.js";
+import { ethTransport } from "./transport.js";
 
 // Needs a running Cosmos EVM node (cosmos/evm `evmd`, `local_node.sh`) and env:
 // - COSMOS_EVM_RPC_URL: its Ethereum JSON-RPC (default http://127.0.0.1:8645);
@@ -15,7 +15,7 @@ const devKey = process.env.COSMOS_EVM_DEV_KEY as Hex;
 // the native denom as an ERC-20 (x/erc20 of local_node.sh)
 const nativeErc20 = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
 
-describe("viemTransport on Cosmos EVM", function () {
+describe("ethTransport on Cosmos EVM", function () {
   it("sends a transaction from an account funded after genesis", async function () {
     const chain = defineChain({
       id: 262144,
@@ -23,12 +23,12 @@ describe("viemTransport on Cosmos EVM", function () {
       nativeCurrency: { name: "Test", symbol: "ATEST", decimals: 18 },
       rpcUrls: { default: { http: [rpcUrl] } },
     });
-    const publicClient = createPublicClient({ chain, transport: viemTransport() });
-    const dev = createWalletClient({ account: privateKeyToAccount(devKey), chain, transport: viemTransport() });
+    const publicClient = createPublicClient({ chain, transport: ethTransport() });
+    const dev = createWalletClient({ account: privateKeyToAccount(devKey), chain, transport: ethTransport() });
     const fresh = createWalletClient({
       account: privateKeyToAccount(generatePrivateKey()),
       chain,
-      transport: viemTransport(),
+      transport: ethTransport(),
     });
 
     const funding = await dev.sendTransaction({ to: fresh.account.address, value: 10n ** 18n });

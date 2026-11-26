@@ -14,16 +14,16 @@ npm i --save @ethberry/nestjs-router-eth
 
 ## Exports
 
-- `ViemModule` (`register` / `registerAsync` with `IViemModuleOptions`), `ViemService`.
-- `ViemService`: `updateRegistry(contract)`, `getRegistry()`, `getPastEvents(registry, fromBlock, toBlock, chunkSize?)`, `getLastBlock()`, `getLastProcessedBlock()`, `listen()` (one cycle; the cron calls it).
-- Providers and tokens: `VIEM_CLIENT` (a public client), `VIEM_ACCOUNT` (from `PRIVATE_KEY`), `CHAIN_PROVIDER` (from `RPC_URL`, `CHAIN_ID`), `viemTransport()`.
+- `EthModule` (`register` / `registerAsync` with `IEthModuleOptions`), `EthService`.
+- `EthService`: `updateRegistry(contract)`, `getRegistry()`, `getPastEvents(registry, fromBlock, toBlock, chunkSize?)`, `getLastBlock()`, `getLastProcessedBlock()`, `listen()` (one cycle; the cron calls it).
+- Providers and tokens: `ETH_CLIENT` (a public client), `ETH_ACCOUNT` (from `PRIVATE_KEY`), `CHAIN_PROVIDER` (from `RPC_URL`, `CHAIN_ID`), `ethTransport()`.
 - `BLOCK_EVENT`, `waitForConfirmation`, `delay`, `patchBigInt`.
-- Types: `IContractOptions`, `ILogEvent`, `IBlockEvent`, `IViemModuleOptions`.
+- Types: `IContractOptions`, `ILogEvent`, `IBlockEvent`, `IEthModuleOptions`.
 
 ## Configuration
 
-- `RPC_URL`, `CHAIN_ID` (env, through `ConfigService`): the chain the module's client reads. `PRIVATE_KEY`: the account of `VIEM_ACCOUNT`.
-- Module options (`IViemModuleOptions`): `fromBlock` (where to start), `latency` (blocks to stay behind the head; 0 on chains that make blocks only on transactions), `chunkSize` (blocks per `eth_getLogs`, 0 = one request), `cron`, `debug` (log undecodable logs).
+- `RPC_URL`, `CHAIN_ID` (env, through `ConfigService`): the chain the module's client reads. `PRIVATE_KEY`: the account of `ETH_ACCOUNT`.
+- Module options (`IEthModuleOptions`): `fromBlock` (where to start), `latency` (blocks to stay behind the head; 0 on chains that make blocks only on transactions), `chunkSize` (blocks per `eth_getLogs`, 0 = one request), `cron`, `debug` (log undecodable logs).
 
 ## Example
 
@@ -35,7 +35,7 @@ export class TokenController {
 }
 
 // once the contract is known (on start, or from a factory's Deployed handler)
-viemService.updateRegistry({
+ethService.updateRegistry({
   contractType: "ERC20_TOKEN",
   contractAddress: [tokenAddress],
   contractInterface: erc20Abi,
@@ -43,7 +43,7 @@ viemService.updateRegistry({
 });
 ```
 
-A full working setup is [viem.service.spec.ts](src/viem.service.spec.ts).
+A full working setup is [eth.service.spec.ts](src/eth.service.spec.ts).
 
 ## Writing handlers
 
@@ -51,17 +51,19 @@ A full working setup is [viem.service.spec.ts](src/viem.service.spec.ts).
 - A handler may call `updateRegistry` for a contract it learns about (a factory's `Deployed` event). The listener then reads the current range again for that contract, so its events from the same range are delivered, once.
 - A handler may also call `getPastEvents` itself. That call does not wait for the handlers of its events: they run after the current handler, one at a time. Its events come in addition to the listener's own, so re-reading a new contract's range from a handler delivers those events twice; with the above, there is no need to.
 - Native coin transfers have no log and are not seen.
+- To resume after a restart, save `getLastProcessedBlock()` (or the block event's `processedBlockNumber`) and start from it + 1: it never names a block whose logs are not handled yet.
+- Each event is delivered once; a handler that rejects is logged and skipped. The context (`Log`) has `transactionHash` and `logIndex` to deduplicate if a handler needs to.
 - How the cursor moves and what a failure does: [docs/event-routing.md](docs/event-routing.md), "Cursor and failures". A rejected handler does **not** stop the cursor here (unlike `@ethberry/nestjs-router-solana` and `@ethberry/nestjs-router-ton`).
 
 ## Transport
 
-Build your own clients (a wallet client to send transactions) on `viemTransport()`, as the package's client is. It never asks the node `eth_fillTransaction`, which some nodes (Cosmos EVM) answer from a wrong state; viem then fills nonce, gas and fees through the plain RPC methods.
+Build your own clients (a wallet client to send transactions) on `ethTransport()`, as the package's client is. It never asks the node `eth_fillTransaction`, which some nodes (Cosmos EVM) answer from a wrong state; viem then fills nonce, gas and fees through the plain RPC methods.
 
 ```ts
 import { createWalletClient } from "viem";
-import { viemTransport } from "@ethberry/nestjs-router-eth";
+import { ethTransport } from "@ethberry/nestjs-router-eth";
 
-const wallet = createWalletClient({ account, chain, transport: viemTransport() });
+const wallet = createWalletClient({ account, chain, transport: ethTransport() });
 ```
 
 ## Development

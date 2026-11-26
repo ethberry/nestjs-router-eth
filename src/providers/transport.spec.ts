@@ -1,10 +1,10 @@
 import { jest } from "@jest/globals";
 import { MethodNotSupportedRpcError } from "viem";
 
-import { viemTransport } from "./transport.js";
+import { ethTransport } from "./transport.js";
 
 // The node is never asked eth_fillTransaction; other methods reach it.
-describe("viemTransport", function () {
+describe("ethTransport", function () {
   const fetchFn = jest.spyOn(globalThis, "fetch");
 
   afterEach(function () {
@@ -16,7 +16,7 @@ describe("viemTransport", function () {
   });
 
   it("refuses eth_fillTransaction without a request to the node", async function () {
-    const { request } = viemTransport("http://127.0.0.1:1")({});
+    const { request } = ethTransport("http://127.0.0.1:1")({});
 
     await expect(request({ method: "eth_fillTransaction", params: [{}] })).rejects.toBeInstanceOf(
       MethodNotSupportedRpcError,
@@ -26,7 +26,7 @@ describe("viemTransport", function () {
 
   it("sends other methods to the node", async function () {
     fetchFn.mockResolvedValue(Response.json({ jsonrpc: "2.0", id: 0, result: "0x1" }));
-    const { request } = viemTransport("http://127.0.0.1:1")({});
+    const { request } = ethTransport("http://127.0.0.1:1")({});
 
     await expect(request({ method: "eth_blockNumber" })).resolves.toEqual("0x1");
     expect(fetchFn).toHaveBeenCalledTimes(1);

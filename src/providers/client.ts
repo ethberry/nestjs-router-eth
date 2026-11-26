@@ -1,17 +1,17 @@
 import type { PublicClient } from "viem";
 import { Chain, createPublicClient } from "viem";
 
-import { VIEM_CLIENT } from "../viem.constants.js";
+import { ETH_CLIENT } from "../eth.constants.js";
 import { CHAIN_PROVIDER } from "./chain.js";
-import { viemTransport } from "./transport.js";
+import { ethTransport } from "./transport.js";
 
-export const viemHttpClientProvider = {
-  provide: VIEM_CLIENT,
+export const ethClientProvider = {
+  provide: ETH_CLIENT,
   inject: [CHAIN_PROVIDER],
   useFactory: (chain: Chain): PublicClient => {
     return createPublicClient({
       chain: chain,
-      transport: viemTransport(),
+      transport: ethTransport(),
     });
   },
 };
