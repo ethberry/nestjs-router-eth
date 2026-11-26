@@ -8,9 +8,9 @@ import type { Hash } from "viem";
 
 import { patchBigInt } from "./utils/index.js";
 import type { IContractOptions } from "./interfaces/index.js";
-import { VIEM_CLIENT } from "./viem.constants.js";
-import { MODULE_OPTIONS_TOKEN } from "./viem.module-definition.js";
-import { ViemService } from "./viem.service.js";
+import { ETH_CLIENT } from "./eth.constants.js";
+import { MODULE_OPTIONS_TOKEN } from "./eth.module-definition.js";
+import { EthService } from "./eth.service.js";
 
 // as the apps do: logs carry bigints and are logged as JSON
 patchBigInt();
@@ -79,9 +79,9 @@ const run = async (registry: IContractOptions[], logs: unknown[], debug = true) 
   const logger = { log: jest.fn<(message: unknown, context?: string) => void>(), error: jest.fn(), warn: jest.fn() };
   const module = await Test.createTestingModule({
     providers: [
-      ViemService,
+      EthService,
       { provide: Logger, useValue: logger },
-      { provide: VIEM_CLIENT, useValue: { getLogs: () => Promise.resolve(logs) } },
+      { provide: ETH_CLIENT, useValue: { getLogs: () => Promise.resolve(logs) } },
       { provide: DiscoveryService, useValue: { getControllers: () => [] } },
       { provide: MetadataScanner, useValue: {} },
       { provide: Reflector, useValue: {} },
@@ -89,7 +89,7 @@ const run = async (registry: IContractOptions[], logs: unknown[], debug = true) 
       { provide: SchedulerRegistry, useValue: {} },
     ],
   }).compile();
-  await module.get(ViemService).getPastEvents(registry, 0n, 1n);
+  await module.get(EthService).getPastEvents(registry, 0n, 1n);
   const messages = () => logger.log.mock.calls.map(([message]) => String(message));
   // routing runs on the service's subject after getPastEvents returns: wait for the expected routes
   const routed = async (expected: string[]) => {
@@ -102,7 +102,7 @@ const run = async (registry: IContractOptions[], logs: unknown[], debug = true) 
   return { logger, messages, routed };
 };
 
-describe("ViemService.getPastEvents: which entry decodes a log", function () {
+describe("EthService.getPastEvents: which entry decodes a log", function () {
   it("one address, two entries: the log goes only to the entry with its event, no decode error", async function () {
     const { logger, routed } = await run([erc721, accessControl], [log(token, roleGrantedTopics)]);
 
