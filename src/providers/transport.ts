@@ -25,5 +25,5 @@ import { http } from "viem";
 //
 // Test against a local evmd: providers/transport.integration.spec.ts (npm run test:integration). Details and the
 // rejected alternatives: docs/transport.md, docs/adr/0001-transport-excludes-eth-fill-transaction.md.
-export const viemTransport = (url?: string): HttpTransport =>
+export const ethTransport = (url?: string): HttpTransport =>
   http(url, { methods: { exclude: ["eth_fillTransaction"] } });

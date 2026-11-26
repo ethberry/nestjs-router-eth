@@ -1,6 +1,6 @@
 # Transport
 
-`viemTransport(url?)` is the HTTP transport of the package's clients (`viemHttpClientProvider`, `VIEM_CLIENT`). It is
+`ethTransport(url?)` is the HTTP transport of the package's clients (`ethClientProvider`, `ETH_CLIENT`). It is
 exported so an app builds its own clients, a wallet client included, on the same transport. Without `url` it uses the
 chain's default RPC URL (`RPC_URL` in `chainProvider`).
 
@@ -17,7 +17,7 @@ unsupported method makes it fall back to the plain calls.
   reverts there (`transfer amount exceeds balance`, `FacetHasNoCode`), though `eth_estimateGas` on the same request
   succeeds.
 
-`viemTransport` excludes the method (viem's `methods.exclude`): viem gets `MethodNotSupportedRpcError` without a
+`ethTransport` excludes the method (viem's `methods.exclude`): viem gets `MethodNotSupportedRpcError` without a
 request to the node and fills the transaction as on Besu, on every chain. A caller that sets nonce, gas and fees itself
 is not affected. Why, for which chain, and the alternatives: [ADR 0001](adr/0001-transport-excludes-eth-fill-transaction.md).
 
