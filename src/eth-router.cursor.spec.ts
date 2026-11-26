@@ -9,11 +9,10 @@ import type { Hash, PublicClient } from "viem";
 import { createPublicClient, createWalletClient, defineChain, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
-import { patchBigInt } from "./utils";
-import type { IBlockEvent, ILogEvent, IEthModuleOptions } from "./interfaces";
-import { BLOCK_EVENT, ETH_CLIENT } from "./eth.constants";
-import { EthModule } from "./eth.module";
-import { EthService } from "./eth.service";
+import type { IBlockEvent, ILogEvent, IEthRouterModuleOptions } from "./interfaces";
+import { BLOCK_EVENT, ETH_CLIENT } from "./eth-router.constants";
+import { EthRouterModule } from "./eth-router.module";
+import { EthRouterService } from "./eth-router.service";
 import Erc20Contract from "./contracts/ERC20Ownable.json";
 
 // The cursor (`fromBlock`, `getLastProcessedBlock`, the block event's `processedBlockNumber`) never passes a log that
@@ -21,7 +20,6 @@ import Erc20Contract from "./contracts/ERC20Ownable.json";
 // failures are injected by a client that wraps the real one.
 
 config();
-patchBigInt();
 
 const rpc = process.env.JSON_RPC_ADDR;
 const chain = defineChain({
@@ -72,7 +70,7 @@ class CursorController {
   public readonly processedDuringHandler: bigint[] = [];
   public rejectNext = false;
 
-  constructor(private readonly ethService: EthService) {}
+  constructor(private readonly ethService: EthRouterService) {}
 
   @EventPattern({ contractType: ERC20, eventName: "Transfer" })
   public onTransfer(@Payload() event: ILogEvent<ITransfer>): Promise<void> {
@@ -116,8 +114,8 @@ async function mint(token: Hash, value: bigint): Promise<bigint> {
   return receipt.blockNumber;
 }
 
-async function createModule(client: FlakyClient, options: IEthModuleOptions): Promise<TestingModule> {
-  @Module({ imports: [EthModule.register(options)], controllers: [CursorController] })
+async function createModule(client: FlakyClient, options: IEthRouterModuleOptions): Promise<TestingModule> {
+  @Module({ imports: [EthRouterModule.register(options)], controllers: [CursorController] })
   class CursorModule {}
 
   const moduleRef = await Test.createTestingModule({ imports: [ConfigModule.forRoot(), CursorModule] })
@@ -134,14 +132,14 @@ async function createModule(client: FlakyClient, options: IEthModuleOptions): Pr
   return moduleRef;
 }
 
-const options = (fromBlock: bigint): IEthModuleOptions => ({
+const options = (fromBlock: bigint): IEthRouterModuleOptions => ({
   fromBlock,
   latency: 0n,
   debug: false,
   cron: CronExpression.EVERY_HOUR,
 });
 
-describe("EthService cursor", function () {
+describe("EthRouterService cursor", function () {
   let token: Hash;
   let client: FlakyClient;
   let moduleRef: TestingModule;
@@ -154,7 +152,7 @@ describe("EthService cursor", function () {
     await moduleRef?.close();
   });
 
-  const register = (service: EthService) =>
+  const register = (service: EthRouterService) =>
     service.updateRegistry({
       contractType: ERC20,
       contractAddress: [token],
@@ -168,7 +166,7 @@ describe("EthService cursor", function () {
     client = new FlakyClient();
     const moduleOptions = options(block);
     moduleRef = await createModule(client, moduleOptions);
-    const service = moduleRef.get(EthService);
+    const service = moduleRef.get(EthRouterService);
     if (withRegistry) {
       register(service);
     }

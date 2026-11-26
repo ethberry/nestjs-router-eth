@@ -10,10 +10,10 @@ import type { Hash, Log } from "viem";
 import { createPublicClient, createWalletClient, defineChain, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
-import { patchBigInt, waitForConfirmation } from "./utils";
-import type { IContractOptions, ILogEvent, IEthModuleOptions } from "./interfaces";
-import { EthModule } from "./eth.module";
-import { EthService } from "./eth.service";
+import { waitForConfirmation } from "./utils";
+import type { IContractOptions, ILogEvent, IEthRouterModuleOptions } from "./interfaces";
+import { EthRouterModule } from "./eth-router.module";
+import { EthRouterService } from "./eth-router.service";
 import Erc20Contract from "./contracts/ERC20Ownable.json";
 import Erc721Contract from "./contracts/ERC721Ownable.json";
 import ExchangeContract from "./contracts/Exchange.json";
@@ -71,7 +71,6 @@ export enum ContractType {
 }
 
 config();
-patchBigInt();
 
 // the test chain's address comes from the env (.env.test); a missing one fails here, not deep in viem
 const requiredEnv = (name: string): string => {
@@ -87,7 +86,7 @@ const TOKEN_ID = 1n;
 
 @Injectable()
 class TestEthService {
-  constructor(private readonly ethService: EthService) {}
+  constructor(private readonly ethService: EthRouterService) {}
 
   public updateRegistry(contract: IContractOptions): void {
     return this.ethService.updateRegistry(contract);
@@ -189,10 +188,10 @@ class TestEthController {
 
 @Module({
   imports: [
-    EthModule.registerAsync({
+    EthRouterModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService): IEthModuleOptions => {
+      useFactory: (configService: ConfigService): IEthRouterModuleOptions => {
         const latency = ~~configService.get<string>("LATENCY", "1");
         const fromBlock = ~~configService.get<string>("STARTING_BLOCK", "0");
         return {

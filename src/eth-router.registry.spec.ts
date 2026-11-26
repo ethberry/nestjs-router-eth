@@ -7,14 +7,10 @@ import { Test } from "@nestjs/testing";
 import { encodeEventTopics, pad, parseAbi } from "viem";
 import type { Hash } from "viem";
 
-import { patchBigInt } from "./utils";
 import type { IContractOptions, ILogEvent } from "./interfaces";
-import { ETH_CLIENT } from "./eth.constants";
-import { MODULE_OPTIONS_TOKEN } from "./eth.module-definition";
-import { EthService } from "./eth.service";
-
-// as the apps do: logs carry bigints and are logged as JSON
-patchBigInt();
+import { ETH_CLIENT } from "./eth-router.constants";
+import { MODULE_OPTIONS_TOKEN } from "./eth-router.module-definition";
+import { EthRouterService } from "./eth-router.service";
 
 // A handler can add a contract to the registry while a range is processed (a factory's Deployed event adds the new
 // contract). Every log of a registered address in that range is delivered once, also the logs of the address added
@@ -74,7 +70,7 @@ const transferLog = (address: Hash, tokenId: bigint) =>
 const run = async (registry: IContractOptions[], logs: ITestLog[], rereadOnDeploy = false) => {
   const delivered: string[] = [];
   // set after the module compiles; the handlers run only after that
-  const ref: { service?: EthService } = {};
+  const ref: { service?: EthRouterService } = {};
 
   // the handlers of the app: the factory's Deployed event registers the new token
   class Listener {
@@ -109,7 +105,7 @@ const run = async (registry: IContractOptions[], logs: ITestLog[], rereadOnDeplo
 
   const module = await Test.createTestingModule({
     providers: [
-      EthService,
+      EthRouterService,
       { provide: Logger, useValue: { log: jest.fn(), error: jest.fn(), warn: jest.fn() } },
       { provide: ETH_CLIENT, useValue: { getLogs } },
       { provide: DiscoveryService, useValue: { getControllers: () => [{ instance: listener }] } },
@@ -127,7 +123,7 @@ const run = async (registry: IContractOptions[], logs: ITestLog[], rereadOnDeplo
       { provide: SchedulerRegistry, useValue: {} },
     ],
   }).compile();
-  const service = module.get(EthService);
+  const service = module.get(EthRouterService);
   ref.service = service;
 
   for (const entry of registry) {
@@ -138,7 +134,7 @@ const run = async (registry: IContractOptions[], logs: ITestLog[], rereadOnDeplo
   return { delivered, getLogs };
 };
 
-describe("EthService.getPastEvents: a contract added to the registry during a range", function () {
+describe("EthRouterService.getPastEvents: a contract added to the registry during a range", function () {
   beforeEach(function () {
     logIndex = 0;
   });
