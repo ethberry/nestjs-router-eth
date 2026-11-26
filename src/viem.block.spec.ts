@@ -84,7 +84,7 @@ describe("block events", function () {
     expect(options.fromBlock).toBe(4n);
   });
 
-  it("should emit the fresh head and keep the log cursor behind latency", async function () {
+  it("should emit the fresh head and keep the cursor while no contract is registered", async function () {
     const getBlockNumber = jest.fn<(...args: any[]) => any>().mockResolvedValueOnce(10n).mockResolvedValueOnce(11n);
     const options = moduleOptions(7n, 2n);
     const moduleRef = await createModule({ getBlockNumber, getLogs: jest.fn<(...args: any[]) => any>() }, options, [
@@ -99,13 +99,15 @@ describe("block events", function () {
     expect(seen.map(item => item.event.args.blockNumber)).toEqual([10n]);
     expect(seen.map(item => item.event.name)).toEqual([BLOCK_EVENT]);
     expect(seen.map(item => item.ctx.blockNumber)).toEqual([10n]);
-    expect(options.fromBlock).toBe(9n);
+    // no contracts registered: nothing was read, the cursor stays for the contracts registered later
+    expect(options.fromBlock).toBe(7n);
 
     await moduleRef.get(ViemService).listen();
     await drain(() => seen.length === 2);
 
     expect(seen.map(item => item.event.args.blockNumber)).toEqual([10n, 11n]);
-    expect(options.fromBlock).toBe(10n);
+    expect(seen.map(item => item.event.args.processedBlockNumber)).toEqual([6n, 6n]);
+    expect(options.fromBlock).toBe(7n);
   });
 
   it("should keep scanning contracts when no block handler is registered", async function () {

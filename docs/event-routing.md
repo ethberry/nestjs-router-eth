@@ -24,21 +24,27 @@ with NestJS's own `DiscoveryService`.
 ## A cycle (`listen`)
 
 1. Nothing happens until the registry or a block handler exists.
-2. The head block is read and emitted to block handlers (`BLOCK_EVENT`).
-3. `toBlock` = head − `latency` (option); nothing more while `fromBlock` (option) is above it.
-4. `getPastEvents(registry, fromBlock, toBlock, chunkSize)` processes the range in passes. A pass is one `eth_getLogs`
-   per chunk of `chunkSize` blocks (0 = one request) for the addresses and signatures of the pass.
-5. Each log is decoded with each entry that has the log's address **and** whose `eventSignatures` contain the log's
+2. The head block is read. If that RPC call fails, the error is logged and the cycle ends: no block event, the cursor
+   stays.
+3. The block event (`BLOCK_EVENT`) goes to the block handlers with `blockNumber` (the head) and `processedBlockNumber`
+   (`getLastProcessedBlock()`, below). The cycle waits for the block handlers before it reads logs.
+4. `toBlock` = head − `latency` (option). Nothing more while the registry is empty (the app registers its contracts
+   later; the cursor waits for them) or while `fromBlock` (option) is above `toBlock`.
+5. `getPastEvents(registry, fromBlock, toBlock, chunkSize)` processes the range in passes. A pass is one `eth_getLogs`
+   per chunk for the addresses and signatures of the pass. The chunks are consecutive inclusive ranges of at most
+   `chunkSize` blocks (`[from, from + chunkSize − 1]`, …, the last one ending at `toBlock`); without `chunkSize`, one
+   request.
+6. Each log is decoded with each entry that has the log's address **and** whose `eventSignatures` contain the log's
    selector (`topics[0]`, `toEventSelector` of each signature, computed once per pass). So a log of one entry is never
    decoded with another entry's ABI that shares the address. Matches go to the handlers with the pattern
    `{ contractType: entry.contractType, eventName }` through one queue, one event at a time (block events too). The
    pass ends when the queue is empty: the handlers of its events, and of every event queued meanwhile, have finished.
-6. A handler may call `updateRegistry` during a pass (a factory's `Deployed` event registers the new contract). After
+7. A handler may call `updateRegistry` during a pass (a factory's `Deployed` event registers the new contract). After
    each pass the registry is compared with what this range has fetched, by entry type, address and signature; the
    next pass fetches the range again for what is new only, and passes repeat until nothing new appears. So every log
    of a registered contract is delivered once, also the logs a new contract emits in the range that registered it
    (constructor events, the first mint, a call right after the deploy). The first pass covers the whole registry.
-7. `fromBlock` becomes `toBlock + 1`. A cycle that is still running when the cron fires again is skipped.
+8. `fromBlock` becomes `toBlock + 1`. A cycle that is still running when the cron fires again is skipped.
 
 ## `getPastEvents` from a handler
 
@@ -51,18 +57,28 @@ the logs of a contract registered during the range, a handler does not need to r
 
 ## Cursor and failures
 
-- The cursor is `fromBlock` in memory. After a cycle it becomes `toBlock + 1` whatever happened in the cycle: the handlers' results do not hold it back.
-- The block event fires at the start of a cycle with the **head**, before the logs of the range are read; it is not a "range done" signal. `getLastProcessedBlock()` returns `toBlock` (head − `latency`) after a cycle.
-- An app saves the cursor itself (core-eth: `getLastBlock()`, the head, in `onModuleDestroy`). A save of the head skips the last `latency` blocks on restart; a crash before the save re-reads from the last saved block.
-- Delivery is at most once per range: an event whose handler rejected, or whose chunk failed to load, is not delivered again.
-- A handler that throws synchronously is handled like a rejection (below): logged, the listener goes on.
+- The cursor is `fromBlock` in memory. It moves to `toBlock + 1` only after every log of the range was fetched and
+  every handler of its events has finished.
+- Each event is delivered once. A handler that rejects (or throws synchronously) is logged and does not hold the
+  cursor: what to do with an event it could not handle is the handler's decision. The handler's context (the viem
+  `Log`) carries `blockHash`, `transactionHash` and `logIndex`, which identify the event for deduplication.
+- `getLastProcessedBlock()` is the last block whose logs and handlers have all completed: `fromBlock − 1`, before the
+  first range the block before the start block, and `0n` when the start block is 0. It is safe to save as a cursor at
+  any time, also during a cycle (a shutdown hook); resume from it + 1.
+- The block event fires at the start of a cycle: `blockNumber` is the head, not a "range done" signal;
+  `processedBlockNumber` is the safe cursor.
 
 ## Errors
 
-- `eth_getLogs` failing: logged as an error, the chunk gives no logs (and the cursor moves past them).
+- `eth_getLogs` failing (a rate limit, a range too large, the node down): the error is logged and the cycle ends; the
+  cursor stays and the next cycle reads the same range again. Events of an earlier pass of that range were delivered
+  already and come again then.
+- The head (`eth_blockNumber`) failing: logged, the cycle is skipped. `getLastBlock()` rejects with the RPC error.
 - A decode that fails although the selector matched (a wrong ABI for the registered signature): with the `debug`
   option, the log and the error are logged; without it, skipped silently.
-- A handler that rejects, or throws synchronously: logged as an error; other handlers of the same event and the later events still run; the cursor moves on. A synchronous throw is turned into a rejection before it can reach the queue, which it would otherwise end, stopping the listener for good.
+- A handler that rejects, or throws synchronously: logged as an error; other handlers of the same event and the later
+  events still run; the cursor moves on. A synchronous throw is turned into a rejection before it can reach the queue,
+  which it would otherwise end, stopping the listener for good.
 - No handler for a pattern: logged (`Handler not found for: <route>`).
 
 ## Tests
@@ -79,4 +95,14 @@ the logs of a contract registered during the range, a handler does not need to r
   (a factory deploys a factory that deploys a token) takes one pass per level; an address registered before the range
   is fetched once, and the next pass asks only for the new address; a handler that calls `getPastEvents` for the new
   contract does not block the listener (its logs come twice).
-- `viem.service.spec.ts`, `viem.block.spec.ts`: against a local chain (`JSON_RPC_ADDR` in `.env`, `docker compose up`).
+- `viem.block.spec.ts` (no chain, a stub client): no block handler and no registry keep the cursor; the block event
+  carries the head and `processedBlockNumber`, and the cursor stays while no contract is registered; contracts are
+  scanned without a block handler.
+- `viem.cursor.spec.ts` (local chain, the real client wrapped to fail once): a log of a block reached while the
+  registry was empty is delivered once the contract is added; after a failed `eth_getLogs` the cursor stays and the next
+  cycle delivers the log; a rejected handler is logged, the log is not delivered again and the cursor moves on; the
+  processed block seen by a handler and by the block event is before the block being handled, and after the cycle
+  the block is processed; a failed head read gives no block event and keeps the cursor.
+- `utils/get-past-events.spec.ts` (local chain): 1, 200, 399, 400 and 401 blocks with `chunkSize` 200 are requested
+  once each, at most 200 per request; without `chunkSize`, one request.
+- `viem.service.spec.ts`: against a local chain (`JSON_RPC_ADDR` in `.env`, `docker compose up`).
