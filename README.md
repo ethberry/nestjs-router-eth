@@ -18,7 +18,8 @@ npm t
 
 ### How to use:
 
-Check [viem.service.spec.ts](src/viem.service.spec.ts)
+Import `EthModule` (`EthModule.register(options)` or `registerAsync`, options `IEthModuleOptions`) and inject
+`EthService`; the viem client is under the `ETH_CLIENT` token, the account under `ETH_ACCOUNT`. Check [eth.service.spec.ts](src/eth.service.spec.ts)
 
 ### Contracts registered from a handler
 

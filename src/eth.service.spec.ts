@@ -11,9 +11,9 @@ import { createPublicClient, createWalletClient, defineChain, http } from "viem"
 import { privateKeyToAccount } from "viem/accounts";
 
 import { patchBigInt, waitForConfirmation } from "./utils";
-import type { IContractOptions, ILogEvent, IViemModuleOptions } from "./interfaces";
-import { ViemModule } from "./viem.module";
-import { ViemService } from "./viem.service";
+import type { IContractOptions, ILogEvent, IEthModuleOptions } from "./interfaces";
+import { EthModule } from "./eth.module";
+import { EthService } from "./eth.service";
 import Erc20Contract from "./contracts/ERC20Ownable.json";
 import Erc721Contract from "./contracts/ERC721Ownable.json";
 import ExchangeContract from "./contracts/Exchange.json";
@@ -86,15 +86,15 @@ const AMOUNT = 10000000n;
 const TOKEN_ID = 1n;
 
 @Injectable()
-class TestViemService {
-  constructor(private readonly viemService: ViemService) {}
+class TestEthService {
+  constructor(private readonly ethService: EthService) {}
 
   public updateRegistry(contract: IContractOptions): void {
-    return this.viemService.updateRegistry(contract);
+    return this.ethService.updateRegistry(contract);
   }
 
   public getRegistry(): IContractOptions[] {
-    return this.viemService.getRegistry();
+    return this.ethService.getRegistry();
   }
 
   public async logEvent(
@@ -121,8 +121,8 @@ class TestViemService {
 }
 
 @Controller()
-class TestViemController {
-  constructor(private readonly testViemService: TestViemService) {}
+class TestEthController {
+  constructor(private readonly testEthService: TestEthService) {}
 
   @EventPattern([
     {
@@ -135,7 +135,7 @@ class TestViemController {
     },
   ])
   public logEvent1(@Payload() event: ILogEvent<IOwnershipTransferred>, @Ctx() ctx: Log): Promise<void> {
-    return this.testViemService.logEvent(event, ctx);
+    return this.testEthService.logEvent(event, ctx);
   }
 
   @EventPattern({
@@ -143,7 +143,7 @@ class TestViemController {
     eventName: "Approval",
   })
   public logEvent2(@Payload() event: ILogEvent<IERC20ApprovalEvent>, @Ctx() ctx: Log): Promise<void> {
-    return this.testViemService.logEvent(event, ctx);
+    return this.testEthService.logEvent(event, ctx);
   }
 
   @EventPattern({
@@ -151,7 +151,7 @@ class TestViemController {
     eventName: "Transfer",
   })
   public logEvent3(@Payload() event: ILogEvent<IERC20TransferEvent>, @Ctx() ctx: Log): Promise<void> {
-    return this.testViemService.logEvent(event, ctx);
+    return this.testEthService.logEvent(event, ctx);
   }
 
   @EventPattern({
@@ -159,7 +159,7 @@ class TestViemController {
     eventName: "Approval",
   })
   public logEvent4(@Payload() event: ILogEvent<IERC721ApprovalEvent>, @Ctx() ctx: Log): Promise<void> {
-    return this.testViemService.logEvent(event, ctx);
+    return this.testEthService.logEvent(event, ctx);
   }
 
   @EventPattern({
@@ -167,7 +167,7 @@ class TestViemController {
     eventName: "Transfer",
   })
   public logEvent5(@Payload() event: ILogEvent<IERC721TransferEvent>, @Ctx() ctx: Log): Promise<void> {
-    return this.testViemService.logEvent(event, ctx);
+    return this.testEthService.logEvent(event, ctx);
   }
 
   @EventPattern({
@@ -175,7 +175,7 @@ class TestViemController {
     eventName: "Swap",
   })
   public logEvent6(@Payload() event: ILogEvent<IExchangeSwapEvent>, @Ctx() ctx: Log): Promise<void> {
-    return this.testViemService.logEvent(event, ctx);
+    return this.testEthService.logEvent(event, ctx);
   }
 
   @EventPattern({
@@ -183,16 +183,16 @@ class TestViemController {
     eventName: "Swap",
   })
   public logEvent7(@Payload() event: ILogEvent<IExchangeSwapEvent>, @Ctx() ctx: Log): Promise<void> {
-    return this.testViemService.logEvent(event, ctx);
+    return this.testEthService.logEvent(event, ctx);
   }
 }
 
 @Module({
   imports: [
-    ViemModule.registerAsync({
+    EthModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService): IViemModuleOptions => {
+      useFactory: (configService: ConfigService): IEthModuleOptions => {
         const latency = ~~configService.get<string>("LATENCY", "1");
         const fromBlock = ~~configService.get<string>("STARTING_BLOCK", "0");
         return {
@@ -205,19 +205,19 @@ class TestViemController {
       },
     }),
   ],
-  providers: [TestViemService],
-  controllers: [TestViemController],
-  exports: [TestViemService],
+  providers: [TestEthService],
+  controllers: [TestEthController],
+  exports: [TestEthService],
 })
-class TestViemModule {}
+class TestEthModule {}
 
-describe("ViemServer", function () {
+describe("EthServer", function () {
   // https://github.com/facebook/jest/issues/11543
   jest.setTimeout(100000);
 
   let logSpyContract: jest.Spied<any>;
 
-  let testViemService: TestViemService;
+  let testEthService: TestEthService;
 
   beforeEach(async function () {
     const module = await Test.createTestingModule({
@@ -225,12 +225,12 @@ describe("ViemServer", function () {
         ConfigModule.forRoot({
           envFilePath: `.env`,
         }),
-        TestViemModule,
+        TestEthModule,
       ],
     }).compile();
 
-    testViemService = module.get<TestViemService>(TestViemService);
-    logSpyContract = jest.spyOn(testViemService, "logEvent");
+    testEthService = module.get<TestEthService>(TestEthService);
+    logSpyContract = jest.spyOn(testEthService, "logEvent");
 
     await module.init();
   });
@@ -341,7 +341,7 @@ describe("ViemServer", function () {
     });
     await publicClient.waitForTransactionReceipt({ hash: swapHash });
 
-    testViemService.updateRegistry({
+    testEthService.updateRegistry({
       contractType: ContractType.ERC20_TOKEN,
       contractAddress: [priceAddress!],
       contractInterface: Erc20Contract.abi as Abi,
@@ -351,7 +351,7 @@ describe("ViemServer", function () {
         "OwnershipTransferred(address,address)",
       ],
     });
-    testViemService.updateRegistry({
+    testEthService.updateRegistry({
       contractType: ContractType.ERC721_TOKEN,
       contractAddress: [itemAddress!],
       contractInterface: Erc721Contract.abi as Abi,
@@ -361,7 +361,7 @@ describe("ViemServer", function () {
         "OwnershipTransferred(address,address)",
       ],
     });
-    testViemService.updateRegistry({
+    testEthService.updateRegistry({
       contractType: ContractType.EXCHANGE,
       contractAddress: [exchangeAddress!],
       contractInterface: ExchangeContract.abi as Abi,

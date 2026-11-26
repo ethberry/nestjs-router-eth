@@ -10,10 +10,10 @@ import { createPublicClient, createWalletClient, defineChain, http } from "viem"
 import { privateKeyToAccount } from "viem/accounts";
 
 import { patchBigInt } from "./utils";
-import type { IBlockEvent, ILogEvent, IViemModuleOptions } from "./interfaces";
-import { BLOCK_EVENT, VIEM_CLIENT } from "./viem.constants";
-import { ViemModule } from "./viem.module";
-import { ViemService } from "./viem.service";
+import type { IBlockEvent, ILogEvent, IEthModuleOptions } from "./interfaces";
+import { BLOCK_EVENT, ETH_CLIENT } from "./eth.constants";
+import { EthModule } from "./eth.module";
+import { EthService } from "./eth.service";
 import Erc20Contract from "./contracts/ERC20Ownable.json";
 
 // The cursor (`fromBlock`, `getLastProcessedBlock`, the block event's `processedBlockNumber`) never passes a log that
@@ -72,11 +72,11 @@ class CursorController {
   public readonly processedDuringHandler: bigint[] = [];
   public rejectNext = false;
 
-  constructor(private readonly viemService: ViemService) {}
+  constructor(private readonly ethService: EthService) {}
 
   @EventPattern({ contractType: ERC20, eventName: "Transfer" })
   public onTransfer(@Payload() event: ILogEvent<ITransfer>): Promise<void> {
-    this.processedDuringHandler.push(this.viemService.getLastProcessedBlock());
+    this.processedDuringHandler.push(this.ethService.getLastProcessedBlock());
     if (this.rejectNext) {
       this.rejectNext = false;
       return Promise.reject(new Error("message bus down"));
@@ -116,12 +116,12 @@ async function mint(token: Hash, value: bigint): Promise<bigint> {
   return receipt.blockNumber;
 }
 
-async function createModule(client: FlakyClient, options: IViemModuleOptions): Promise<TestingModule> {
-  @Module({ imports: [ViemModule.register(options)], controllers: [CursorController] })
+async function createModule(client: FlakyClient, options: IEthModuleOptions): Promise<TestingModule> {
+  @Module({ imports: [EthModule.register(options)], controllers: [CursorController] })
   class CursorModule {}
 
   const moduleRef = await Test.createTestingModule({ imports: [ConfigModule.forRoot(), CursorModule] })
-    .overrideProvider(VIEM_CLIENT)
+    .overrideProvider(ETH_CLIENT)
     .useValue(client)
     .compile();
   await moduleRef.init();
@@ -134,14 +134,14 @@ async function createModule(client: FlakyClient, options: IViemModuleOptions): P
   return moduleRef;
 }
 
-const options = (fromBlock: bigint): IViemModuleOptions => ({
+const options = (fromBlock: bigint): IEthModuleOptions => ({
   fromBlock,
   latency: 0n,
   debug: false,
   cron: CronExpression.EVERY_HOUR,
 });
 
-describe("ViemService cursor", function () {
+describe("EthService cursor", function () {
   let token: Hash;
   let client: FlakyClient;
   let moduleRef: TestingModule;
@@ -154,7 +154,7 @@ describe("ViemService cursor", function () {
     await moduleRef?.close();
   });
 
-  const register = (service: ViemService) =>
+  const register = (service: EthService) =>
     service.updateRegistry({
       contractType: ERC20,
       contractAddress: [token],
@@ -168,7 +168,7 @@ describe("ViemService cursor", function () {
     client = new FlakyClient();
     const moduleOptions = options(block);
     moduleRef = await createModule(client, moduleOptions);
-    const service = moduleRef.get(ViemService);
+    const service = moduleRef.get(EthService);
     if (withRegistry) {
       register(service);
     }

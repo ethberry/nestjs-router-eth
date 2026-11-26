@@ -14,9 +14,9 @@ import { decodeEventLog, Hash, toEventSelector } from "viem";
 import type { PublicClient } from "viem";
 
 import { getPastEvents } from "./utils/get-past-events";
-import { BLOCK_EVENT, VIEM_CLIENT } from "./viem.constants";
-import { MODULE_OPTIONS_TOKEN } from "./viem.module-definition";
-import type { IBlockEvent, IContractOptions, IDiscoveredHandler, ILogEvent, IViemModuleOptions } from "./interfaces";
+import { BLOCK_EVENT, ETH_CLIENT } from "./eth.constants";
+import { MODULE_OPTIONS_TOKEN } from "./eth.module-definition";
+import type { IBlockEvent, IContractOptions, IDiscoveredHandler, ILogEvent, IEthModuleOptions } from "./interfaces";
 
 const blockPattern = { eventName: BLOCK_EVENT };
 
@@ -28,7 +28,7 @@ interface IRoutedEvent {
 }
 
 @Injectable()
-export class ViemService {
+export class EthService {
   private instanceId: string;
   private cronLock = false;
   private registry: IContractOptions[] = [];
@@ -42,13 +42,13 @@ export class ViemService {
   constructor(
     @Inject(Logger)
     protected readonly loggerService: LoggerService,
-    @Inject(VIEM_CLIENT)
+    @Inject(ETH_CLIENT)
     protected readonly client: PublicClient,
     protected readonly discoveryService: DiscoveryService,
     protected readonly metadataScanner: MetadataScanner,
     protected readonly reflector: Reflector,
     @Inject(MODULE_OPTIONS_TOKEN)
-    protected options: IViemModuleOptions,
+    protected options: IEthModuleOptions,
     protected schedulerRegistry: SchedulerRegistry,
   ) {
     this.subject
@@ -64,13 +64,13 @@ export class ViemService {
       )
       .subscribe({
         next: v => {
-          loggerService.log(v, `${ViemService.name}-${this.instanceId}`);
+          loggerService.log(v, `${EthService.name}-${this.instanceId}`);
         },
         error: e => {
           loggerService.error(e);
         },
         complete: () => {
-          loggerService.log("complete", `${ViemService.name}-${this.instanceId}`);
+          loggerService.log("complete", `${EthService.name}-${this.instanceId}`);
         },
       });
   }
@@ -126,7 +126,7 @@ export class ViemService {
 
     this.loggerService.log(
       `getPastEvents No: ${this.options.fromBlock} - ${toBlock}`,
-      `${ViemService.name}-${this.instanceId}`,
+      `${EthService.name}-${this.instanceId}`,
     );
     // a failed eth_getLogs ends the tick: the cursor stays and the next tick reads the range again; a rejected handler
     // is logged and does not hold the range back (each event is delivered once)
@@ -176,7 +176,7 @@ export class ViemService {
 
     this.loggerService.log(
       `ETH Listener updated: ${contract.contractAddress.join(", ")}`,
-      `${ViemService.name}-${this.instanceId}`,
+      `${EthService.name}-${this.instanceId}`,
     );
   }
 
@@ -226,7 +226,7 @@ export class ViemService {
     const discoveredMethodsWithMeta = await this.getHandlerByPattern(route);
 
     if (!discoveredMethodsWithMeta.length) {
-      this.loggerService.log(`Handler not found for: ${route}`, `${ViemService.name}-${this.instanceId}`);
+      this.loggerService.log(`Handler not found for: ${route}`, `${EthService.name}-${this.instanceId}`);
       return Promise.resolve(EMPTY);
     }
 
@@ -246,7 +246,7 @@ export class ViemService {
     ).then(res => {
       res.forEach(r => {
         if (r.status === "rejected") {
-          this.loggerService.error(r.reason, `${ViemService.name}-${this.instanceId}`);
+          this.loggerService.error(r.reason, `${EthService.name}-${this.instanceId}`);
         }
       });
       return from(["OK"]);
@@ -347,7 +347,7 @@ export class ViemService {
             topics: log.topics,
           });
 
-          this.loggerService.log(JSON.stringify(logDescription, null, "\t"), `${ViemService.name}-${this.instanceId}`);
+          this.loggerService.log(JSON.stringify(logDescription, null, "\t"), `${EthService.name}-${this.instanceId}`);
 
           const description = {
             // the selector matched one of the entry's events, so the decoded log has its name
@@ -365,8 +365,8 @@ export class ViemService {
           });
         } catch (e: unknown) {
           if (this.options.debug) {
-            this.loggerService.log("CAN'T PARSE LOG", `${ViemService.name}-${this.instanceId}`);
-            this.loggerService.log(JSON.stringify(log, null, "\t"), `${ViemService.name}-${this.instanceId}`);
+            this.loggerService.log("CAN'T PARSE LOG", `${EthService.name}-${this.instanceId}`);
+            this.loggerService.log(JSON.stringify(log, null, "\t"), `${EthService.name}-${this.instanceId}`);
             this.loggerService.error(e); // DecodeLogDataMismatch
           }
         }
@@ -375,7 +375,7 @@ export class ViemService {
   }
 
   private logError(e: unknown): void {
-    this.loggerService.error(e, `${ViemService.name}-${this.instanceId}`);
+    this.loggerService.error(e, `${EthService.name}-${this.instanceId}`);
   }
 
   private emit(event: IRoutedEvent): void {
