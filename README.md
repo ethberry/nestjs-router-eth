@@ -58,7 +58,7 @@ A full working setup is [eth-router.service.spec.ts](src/eth-router.service.spec
 - Native coin transfers have no log and are not seen.
 - To resume after a restart, save `getLastProcessedBlock()` (or the block event's `processedBlockNumber`) and start from it + 1: it never names a block whose logs are not handled yet.
 - Each event is delivered once; a handler that rejects is logged and skipped. The context (`Log`) has `transactionHash` and `logIndex` to deduplicate if a handler needs to.
-- How the cursor moves and what a failure does: [docs/event-routing.md](docs/event-routing.md), "Cursor and failures". A rejected handler does **not** stop the cursor here (unlike `@ethberry/nestjs-router-solana` and `@ethberry/nestjs-router-ton`).
+- How the cursor moves and what a failure does: [docs/event-routing.md](docs/event-routing.md), "Cursor and failures". A rejected handler does **not** stop the cursor, as in `@ethberry/nestjs-router-solana` and `@ethberry/nestjs-router-ton`.
 
 ## Development
 
