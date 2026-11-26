@@ -11,17 +11,17 @@ import { CronJob } from "cron";
 import { EMPTY, from, Observable, Subject } from "rxjs";
 import { finalize, mergeAll, mergeMap } from "rxjs/operators";
 import { decodeEventLog, Hash, toEventSelector } from "viem";
-import type { PublicClient } from "viem";
+import type { DecodeEventLogReturnType, PublicClient } from "viem";
 
 import { getPastEvents } from "./utils/get-past-events.js";
-import { BLOCK_EVENT, ETH_CLIENT } from "./eth.constants.js";
-import { MODULE_OPTIONS_TOKEN } from "./eth.module-definition.js";
+import { BLOCK_EVENT, ETH_CLIENT } from "./eth-router.constants.js";
+import { MODULE_OPTIONS_TOKEN } from "./eth-router.module-definition.js";
 import type {
   IBlockEvent,
   IContractOptions,
   IDiscoveredHandler,
   ILogEvent,
-  IEthModuleOptions,
+  IEthRouterModuleOptions,
 } from "./interfaces/index.js";
 
 const blockPattern = { eventName: BLOCK_EVENT };
@@ -34,7 +34,7 @@ interface IRoutedEvent {
 }
 
 @Injectable()
-export class EthService {
+export class EthRouterService {
   private instanceId: string;
   private cronLock = false;
   private registry: IContractOptions[] = [];
@@ -54,7 +54,7 @@ export class EthService {
     protected readonly metadataScanner: MetadataScanner,
     protected readonly reflector: Reflector,
     @Inject(MODULE_OPTIONS_TOKEN)
-    protected options: IEthModuleOptions,
+    protected options: IEthRouterModuleOptions,
     protected schedulerRegistry: SchedulerRegistry,
   ) {
     this.subject
@@ -70,13 +70,13 @@ export class EthService {
       )
       .subscribe({
         next: v => {
-          loggerService.log(v, `${EthService.name}-${this.instanceId}`);
+          loggerService.log(v, `${EthRouterService.name}-${this.instanceId}`);
         },
         error: e => {
           loggerService.error(e);
         },
         complete: () => {
-          loggerService.log("complete", `${EthService.name}-${this.instanceId}`);
+          loggerService.log("complete", `${EthRouterService.name}-${this.instanceId}`);
         },
       });
   }
@@ -132,7 +132,7 @@ export class EthService {
 
     this.loggerService.log(
       `getPastEvents No: ${this.options.fromBlock} - ${toBlock}`,
-      `${EthService.name}-${this.instanceId}`,
+      `${EthRouterService.name}-${this.instanceId}`,
     );
     // a failed eth_getLogs ends the tick: the cursor stays and the next tick reads the range again; a rejected handler
     // is logged and does not hold the range back (each event is delivered once)
@@ -182,7 +182,7 @@ export class EthService {
 
     this.loggerService.log(
       `ETH Listener updated: ${contract.contractAddress.join(", ")}`,
-      `${EthService.name}-${this.instanceId}`,
+      `${EthRouterService.name}-${this.instanceId}`,
     );
   }
 
@@ -232,7 +232,7 @@ export class EthService {
     const discoveredMethodsWithMeta = await this.getHandlerByPattern(route);
 
     if (!discoveredMethodsWithMeta.length) {
-      this.loggerService.log(`Handler not found for: ${route}`, `${EthService.name}-${this.instanceId}`);
+      this.loggerService.log(`Handler not found for: ${route}`, `${EthRouterService.name}-${this.instanceId}`);
       return Promise.resolve(EMPTY);
     }
 
@@ -252,7 +252,7 @@ export class EthService {
     ).then(res => {
       res.forEach(r => {
         if (r.status === "rejected") {
-          this.loggerService.error(r.reason, `${EthService.name}-${this.instanceId}`);
+          this.loggerService.error(r.reason, `${EthRouterService.name}-${this.instanceId}`);
         }
       });
       return from(["OK"]);
@@ -345,43 +345,47 @@ export class EthService {
           continue;
         }
 
+        // only the decoding is guarded: a log that does not fit the entry's ABI (DecodeLogDataMismatch) is logged and
+        // skipped. Nothing here serializes the log or its args: they hold bigints, which JSON cannot take unless the
+        // app patches BigInt (the app's business, not the router's)
+        let logDescription: DecodeEventLogReturnType;
         try {
-          // throws DecodeLogDataMismatch
-          const logDescription = decodeEventLog({
+          logDescription = decodeEventLog({
             abi: entry.contractInterface,
             data: log.data,
             topics: log.topics,
           });
-
-          this.loggerService.log(JSON.stringify(logDescription, null, "\t"), `${EthService.name}-${this.instanceId}`);
-
-          const description = {
-            // the selector matched one of the entry's events, so the decoded log has its name
-            name: logDescription.eventName!,
-            args: logDescription.args,
-          };
-
-          this.emit({
-            pattern: {
-              contractType: entry.contractType,
-              eventName: description.name,
-            },
-            description,
-            log,
-          });
         } catch (e: unknown) {
+          this.loggerService.error(
+            `Can't decode ${entry.contractType} log ${log.transactionHash}:${log.logIndex}`,
+            `${EthRouterService.name}-${this.instanceId}`,
+          );
           if (this.options.debug) {
-            this.loggerService.log("CAN'T PARSE LOG", `${EthService.name}-${this.instanceId}`);
-            this.loggerService.log(JSON.stringify(log, null, "\t"), `${EthService.name}-${this.instanceId}`);
-            this.loggerService.error(e); // DecodeLogDataMismatch
+            this.loggerService.error(e, `${EthRouterService.name}-${this.instanceId}`);
           }
+          continue;
         }
+
+        const { eventName } = logDescription;
+        this.loggerService.log(
+          `${entry.contractType} ${eventName} ${log.transactionHash}:${log.logIndex}`,
+          `${EthRouterService.name}-${this.instanceId}`,
+        );
+
+        this.emit({
+          pattern: {
+            contractType: entry.contractType,
+            eventName,
+          },
+          description: { name: eventName, args: logDescription.args },
+          log,
+        });
       }
     }
   }
 
   private logError(e: unknown): void {
-    this.loggerService.error(e, `${EthService.name}-${this.instanceId}`);
+    this.loggerService.error(e, `${EthRouterService.name}-${this.instanceId}`);
   }
 
   private emit(event: IRoutedEvent): void {

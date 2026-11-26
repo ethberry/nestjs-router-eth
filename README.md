@@ -16,16 +16,19 @@ This is the 2.x line: ESM on NestJS 12, Ethereum only (no Cosmos EVM transport).
 
 ## Exports
 
-- `EthModule` (`register` / `registerAsync` with `IEthModuleOptions`), `EthService`.
-- `EthService`: `updateRegistry(contract)`, `getRegistry()`, `getPastEvents(registry, fromBlock, toBlock, chunkSize?)`, `getLastBlock()`, `getLastProcessedBlock()`, `listen()` (one cycle; the cron calls it).
+- `EthRouterModule` (`register` / `registerAsync` with `IEthRouterModuleOptions`), `EthRouterService`.
+- `EthRouterService`: `updateRegistry(contract)`, `getRegistry()`, `getPastEvents(registry, fromBlock, toBlock, chunkSize?)`, `getLastBlock()`, `getLastProcessedBlock()`, `listen()` (one cycle; the cron calls it).
 - Providers and tokens: `ETH_CLIENT` (a public client), `ETH_ACCOUNT` (from `PRIVATE_KEY`), `CHAIN_PROVIDER` (from `RPC_URL`, `CHAIN_ID`).
-- `BLOCK_EVENT`, `waitForConfirmation`, `delay`, `patchBigInt`.
-- Types: `IContractOptions`, `ILogEvent`, `IBlockEvent`, `IEthModuleOptions`.
+- `BLOCK_EVENT`, `waitForConfirmation`, `delay`.
+- Types: `IContractOptions`, `ILogEvent`, `IBlockEvent`, `IEthRouterModuleOptions`.
+
+The router never serializes logs or event args to JSON. They hold bigints: an app that logs or stores them as JSON
+patches `BigInt.prototype.toJSON` itself.
 
 ## Configuration
 
 - `RPC_URL`, `CHAIN_ID` (env, through `ConfigService`): the chain the module's client reads. `PRIVATE_KEY`: the account of `ETH_ACCOUNT`.
-- Module options (`IEthModuleOptions`): `fromBlock` (where to start), `latency` (blocks to stay behind the head; 0 on chains that make blocks only on transactions), `chunkSize` (blocks per `eth_getLogs`, 0 = one request), `cron`, `debug` (log undecodable logs).
+- Module options (`IEthRouterModuleOptions`): `fromBlock` (where to start), `latency` (blocks to stay behind the head; 0 on chains that make blocks only on transactions), `chunkSize` (blocks per `eth_getLogs`, 0 = one request), `cron`, `debug` (also log the error of an undecodable log; the log's position is logged always).
 
 ## Example
 
@@ -37,7 +40,7 @@ export class TokenController {
 }
 
 // once the contract is known (on start, or from a factory's Deployed handler)
-ethService.updateRegistry({
+ethRouterService.updateRegistry({
   contractType: "ERC20_TOKEN",
   contractAddress: [tokenAddress],
   contractInterface: erc20Abi,
@@ -45,7 +48,7 @@ ethService.updateRegistry({
 });
 ```
 
-A full working setup is [eth.service.spec.ts](src/eth.service.spec.ts).
+A full working setup is [eth-router.service.spec.ts](src/eth-router.service.spec.ts).
 
 ## Writing handlers
 
