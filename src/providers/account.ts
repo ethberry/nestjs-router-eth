@@ -2,7 +2,7 @@ import { ConfigService } from "@nestjs/config";
 import { privateKeyToAccount } from "viem/accounts";
 import { Hash } from "viem";
 
-import { ETH_ACCOUNT } from "../eth.constants.js";
+import { ETH_ACCOUNT } from "../eth-router.constants.js";
 
 export const ethAccountProvider = {
   provide: ETH_ACCOUNT,
