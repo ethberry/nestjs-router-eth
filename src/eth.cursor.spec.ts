@@ -24,6 +24,9 @@ config();
 patchBigInt();
 
 const rpc = process.env.JSON_RPC_ADDR;
+if (!rpc) {
+  throw new Error("JSON_RPC_ADDR is not set");
+}
 const chain = defineChain({
   id: 10000,
   name: "Besu",
