@@ -11,6 +11,7 @@ Level 1: no dependencies on other `@ethberry/*` runtime packages. Released befor
 - Base branch: `main`.
 - Install: `npm ci` (the lockfile is committed; it resolves the `@ethberry` dev packages from GitHub Packages, so an install needs a token with `read:packages`).
 - Build: `npm run build` (`tsc`). Test: `npm run test`. Lint: `npm run lint`.
+- The tests need the local nodes of `docker-compose.yml`: `besu` (`JSON_RPC_ADDR`) and `tron` (TRE on 9190, `docs/tron.md`; a stopped one is recreated, never restarted: `docker compose up -d --force-recreate tron`).
 - CI (`ci-test.yml`) on a PR: install, build, lint, test.
 - Release: `gh workflow run manual.yml --repo ethberry/nestjs-router-eth --ref main -f bump=patch|minor|major`. The workflow runs `npm version` and publishes to GitHub Packages and to npmjs (public).
 

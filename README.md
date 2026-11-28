@@ -70,6 +70,10 @@ import { ethTransport } from "@ethberry/nestjs-router-eth";
 const wallet = createWalletClient({ account, chain, transport: ethTransport() });
 ```
 
+## Tron
+
+The router reads Tron through the node's Ethereum JSON-RPC: `RPC_URL=<node>/jsonrpc`, `CHAIN_ID` as `eth_chainId` answers, `latency` the blocks to solidification (19 on mainnet), `chunkSize` at most 5000. Register addresses as 20-byte hex without the `41` prefix. Sending needs Tron's native API: the JSON-RPC has no `eth_sendRawTransaction`. Details: [docs/tron.md](docs/tron.md).
+
 ## Development
 
 ```sh

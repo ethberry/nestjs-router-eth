@@ -51,6 +51,12 @@ jobs:
             alethio/ethereum-lite-explorer
           sleep 30
 
+      # the Tron test reads the node's funded accounts: wait until it serves them (about a minute after the start)
+      - name: Start the Tron node
+        run: |
+          docker compose up -d tron
+          timeout 300 bash -c 'until curl -sf http://127.0.0.1:9190/admin/accounts-json | grep -q privateKeys; do sleep 5; done'
+
       - name: Besu / Explorer logs
         run: |
           docker logs besu || true

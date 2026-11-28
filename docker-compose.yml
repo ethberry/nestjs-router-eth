@@ -46,3 +46,13 @@ services:
       - besu
     networks:
       - ethberry
+
+  # Tron (TronBox Runtime Environment): the native API, the Ethereum JSON-RPC (/jsonrpc) and the TRE admin API on one port.
+  # Its own name and port, so it runs next to other stands' tron node. No restart: the image appends to its config on
+  # every start, so a stopped container never starts again; recreate it (a new chain with new accounts).
+  tron:
+    container_name: nestjs-router-eth-tron
+    image: tronbox/tre:2.0.0
+    restart: "no"
+    ports:
+      - "9190:9090"
