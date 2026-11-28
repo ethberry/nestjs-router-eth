@@ -72,8 +72,16 @@ jobs:
         with:
           node-version: "24.x"
 
+      # before the install: the lockfile resolves @ethberry dev packages from GitHub Packages
+      - name: Authenticate GitHub Packages
+        run: |
+          echo "@ethberry:registry=https://npm.pkg.github.com/" >> .npmrc
+          echo "//npm.pkg.github.com/:_authToken=$GITHUBTOKEN" >> .npmrc
+        env:
+          GITHUBTOKEN: ${{ secrets.GITHUBTOKEN }}
+
       - name: Install Packages
-        run: npm i
+        run: npm ci
 
       - name: Lint
         run: npm run lint

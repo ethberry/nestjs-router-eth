@@ -2,7 +2,7 @@ import { Abi } from "abitype";
 
 export interface IContractOptions {
   contractType: string;
-  contractAddress: Array<string>;
+  contractAddress: string[];
   contractInterface: Abi;
-  eventSignatures: Array<string>;
+  eventSignatures: string[];
 }
