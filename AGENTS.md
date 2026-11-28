@@ -9,7 +9,7 @@ Level 1: no dependencies on other `@ethberry/*` runtime packages. Released befor
 ## Commands
 
 - Base branch: `main`.
-- Install: `npm i` (`package-lock.json` is git-ignored here).
+- Install: `npm ci` (the lockfile is committed; it resolves the `@ethberry` dev packages from GitHub Packages, so an install needs a token with `read:packages`).
 - Build: `npm run build` (`tsc`). Test: `npm run test`. Lint: `npm run lint`.
 - CI (`ci-test.yml`) on a PR: install, build, lint, test.
 - Release: `gh workflow run manual.yml --repo ethberry/nestjs-router-eth --ref main -f bump=patch|minor|major`. The workflow runs `npm version` and publishes to GitHub Packages and to npmjs (public).

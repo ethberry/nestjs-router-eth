@@ -10,7 +10,7 @@ import type { Hash, Log } from "viem";
 import { createPublicClient, createWalletClient, defineChain, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
-import { waitForConfirmation } from "./utils/index.js";
+import { delay } from "./utils/index.js";
 import type { IContractOptions, ILogEvent, IEthRouterModuleOptions } from "./interfaces/index.js";
 import { EthRouterModule } from "./eth-router.module.js";
 import { EthRouterService } from "./eth-router.service.js";
@@ -94,6 +94,10 @@ class TestEthService {
 
   public getRegistry(): IContractOptions[] {
     return this.ethService.getRegistry();
+  }
+
+  public getLastProcessedBlock(): bigint {
+    return this.ethService.getLastProcessedBlock();
   }
 
   public async logEvent(
@@ -191,12 +195,16 @@ class TestEthController {
     EthRouterModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService): IEthRouterModuleOptions => {
+      // the cursor starts at the head when the test starts: the contracts are deployed after it, and the chain of a
+      // long-running local node is too long to read from block 0 within the test
+      useFactory: async (configService: ConfigService): Promise<IEthRouterModuleOptions> => {
         const latency = ~~configService.get<string>("LATENCY", "1");
-        const fromBlock = ~~configService.get<string>("STARTING_BLOCK", "0");
+        const head = await createPublicClient({ transport: http(requiredEnv("JSON_RPC_ADDR")) }).getBlockNumber({
+          cacheTime: 0,
+        });
         return {
           latency: BigInt(latency),
-          fromBlock: BigInt(fromBlock),
+          fromBlock: head,
           debug: true,
           chunkSize: 100,
           cron: CronExpression.EVERY_SECOND,
@@ -338,7 +346,7 @@ describe("EthServer", function () {
         { account: process.env.ACCOUNT, token: priceAddress, amount: AMOUNT },
       ],
     });
-    await publicClient.waitForTransactionReceipt({ hash: swapHash });
+    const swapReceipt = await publicClient.waitForTransactionReceipt({ hash: swapHash });
 
     testEthService.updateRegistry({
       contractType: ContractType.ERC20_TOKEN,
@@ -367,7 +375,10 @@ describe("EthServer", function () {
       eventSignatures: ["Swap((address,address,uint256),(address,address,uint256))"],
     });
 
-    await waitForConfirmation(publicClient, ~~(process.env.LATENCY ?? "1") + 2);
+    // the cron reads on; wait until it has processed the block of the last transaction
+    while (testEthService.getLastProcessedBlock() < swapReceipt.blockNumber) {
+      await delay(200);
+    }
 
     expect(logSpyContract).toHaveBeenCalledTimes(10);
   });
