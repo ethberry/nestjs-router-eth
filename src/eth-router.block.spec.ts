@@ -52,10 +52,9 @@ async function createModule(
     .compile();
 
   await moduleRef.init();
-  moduleRef
-    .get(SchedulerRegistry)
-    .getCronJobs()
-    .forEach(job => job.stop());
+  for (const job of moduleRef.get(SchedulerRegistry).getCronJobs().values()) {
+    await job.stop();
+  }
   return moduleRef;
 }
 
