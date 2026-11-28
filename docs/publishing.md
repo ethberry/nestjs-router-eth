@@ -48,7 +48,7 @@ Registries: GitHub Packages `https://npm.pkg.github.com/` and npmjs `https://reg
 
 **Manual (local), the usual way while GitHub Actions minutes are out**, from a clean checkout of `origin/main`:
 
-1. `git fetch && git checkout -B main origin/main`; `npm i`; `npm run build`.
+1. `git fetch && git checkout -B main origin/main`; `npm ci`; `npm run build`.
 2. `npm version patch|minor|major -m '[Manual release] [skip ci] %s'`.
 3. GitHub Packages: `npm publish --@ethberry:registry=https://npm.pkg.github.com/`.
 4. npmjs: `npm publish --access public` with a user config that maps `@ethberry` to npmjs and holds `//registry.npmjs.org/:_authToken=${NPM_TOKEN}` (the token only in the environment, never in a file in the repository).
@@ -58,7 +58,7 @@ A 401 from npmjs (`npm whoami`) means the token expired or was revoked; a 404 on
 
 **CI** (GitHub Actions):
 
-- `ci-test.yml`: tests on pull requests.
+- `ci-test.yml`: tests, started by hand. Both workflows authenticate to GitHub Packages before `npm ci`: the lockfile resolves the `@ethberry` dev packages there.
 - `manual.yml`: workflow_dispatch release with input `bump` (patch | minor | major): the manual steps above, both registries.
 
 Secrets the workflows read: `GITHUBEMAIL`, `GITHUBTOKEN`, `GITHUBUSER`, `NPM_EMAIL`, `NPM_TOKEN`, `NPM_USER`. `NPM_TOKEN` is an npmjs token that can publish `@ethberry/*`; `GITHUBTOKEN` / `GITHUBUSER` / `GITHUBEMAIL` push the release commit and publish to GitHub Packages.
