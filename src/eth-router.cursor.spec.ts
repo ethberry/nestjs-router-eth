@@ -43,7 +43,9 @@ interface ITransfer {
   value: bigint;
 }
 
-// the real client; the next getBlockNumber or getLogs can be made to fail once
+// the real client; the next getBlockNumber or getLogs can be made to fail once. The head is read from the node, not
+// from viem's block-number cache: `waitForTransactionReceipt` (in `mint`) fills that cache with the head it last polled,
+// which can be the block before the receipt's, and the router would then see the minted block as not reached yet.
 class FlakyClient {
   public failHead = false;
   public failLogs = false;
@@ -53,7 +55,7 @@ class FlakyClient {
       this.failHead = false;
       return Promise.reject(new Error("head unavailable"));
     }
-    return publicClient.getBlockNumber();
+    return publicClient.getBlockNumber({ cacheTime: 0 });
   }
 
   public getLogs(args: Parameters<PublicClient["getLogs"]>[0]) {
@@ -184,8 +186,10 @@ describe("EthRouterService cursor", function () {
     const cursorWhileEmpty = moduleOptions.fromBlock;
     register(service);
     await service.listen();
+    const cursorAfterRegistration = moduleOptions.fromBlock;
 
     expect(cursorWhileEmpty).toEqual(block);
+    expect(cursorAfterRegistration > block).toEqual(true);
     expect(controller.values).toEqual([value]);
   });
 
@@ -224,14 +228,12 @@ describe("EthRouterService cursor", function () {
 
     await service.listen();
     const processedAfterTick = service.getLastProcessedBlock();
-    await service.listen();
 
-    // while the log of `block` is handled, and in the block event of that tick, the processed block is before it
+    // while the log of `block` is handled, the processed block is before it
     expect(controller.processedDuringHandler).toEqual([block - 1n]);
-    expect(controller.blocks[0].processedBlockNumber).toEqual(block - 1n);
-    // after the tick, the block is processed, and the next block event says so
+    // after the tick, the block is processed, and the block event of the tick, sent after its range, says so
     expect(processedAfterTick >= block).toEqual(true);
-    expect(controller.blocks[1].processedBlockNumber).toEqual(processedAfterTick);
+    expect(controller.blocks.map(args => args.processedBlockNumber)).toEqual([processedAfterTick]);
     expect(controller.values).toEqual([value]);
   });
 
