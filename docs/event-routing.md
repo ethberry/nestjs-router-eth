@@ -108,6 +108,8 @@ the logs of a contract registered during the range, a handler does not need to r
   cycle delivers the log; a rejected handler is logged, the log is not delivered again and the cursor moves on; the
   processed block seen by a handler is before the block being handled, and after the cycle the block is processed, as
   the cycle's block event says; a failed head read gives no block event and keeps the cursor.
+- `eth-router.tron.spec.ts` (the local TRE node): a TRC-20 `Transfer` read over Tron's `/jsonrpc` is routed
+  ([tron.md](tron.md)).
 - `utils/get-past-events.spec.ts` (local chain): 1, 200, 399, 400 and 401 blocks with `chunkSize` 200 are requested
   once each, at most 200 per request; without `chunkSize`, one request.
 - `eth-router.service.spec.ts`: against a local chain (`JSON_RPC_ADDR` in `.env`, `docker compose up`), the cron on:

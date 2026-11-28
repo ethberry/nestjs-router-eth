@@ -5,6 +5,7 @@
 - [Build and publishing](publishing.md)
 - [Event routing](event-routing.md) — registry, the listen cycle, which entry decodes a log, errors
 - [Transport](transport.md) — `ethTransport`, why it never asks `eth_fillTransaction`
+- [Tron](tron.md) — reading Tron over its `/jsonrpc`: configuration, writes, the local node, the test
 
 ## ADR
 
