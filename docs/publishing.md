@@ -59,6 +59,6 @@ A 401 from npmjs (`npm whoami`) means the token expired or was revoked; a 404 on
 **CI** (GitHub Actions):
 
 - `ci-test.yml`: tests, started by hand. Both workflows authenticate to GitHub Packages before `npm ci`: the lockfile resolves the `@ethberry` dev packages there.
-- `manual.yml`: workflow_dispatch release with input `bump` (patch | minor | major; `major` only with the user's yes): the manual steps above, both registries.
+- `manual.yml`: workflow_dispatch release with the required input `bump` (`patch` | `minor`, no default; the workflow offers no major): the manual steps above, both registries.
 
 Secrets the workflows read: `GITHUBEMAIL`, `GITHUBTOKEN`, `GITHUBUSER`, `NPM_EMAIL`, `NPM_TOKEN`, `NPM_USER`. `NPM_TOKEN` is an npmjs token that can publish `@ethberry/*`; `GITHUBTOKEN` / `GITHUBUSER` / `GITHUBEMAIL` push the release commit and publish to GitHub Packages.

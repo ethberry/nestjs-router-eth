@@ -18,7 +18,7 @@ Level 1: no dependencies on other `@ethberry/*` runtime packages. Released befor
 ## Gotchas
 
 - ESM only (`nodenext`, `.js` in relative imports). Jest runs with `NODE_OPTIONS=--experimental-vm-modules`.
-- The version is set by the release workflow (`npm version`), not by conventional commits. Always name `bump`: a breaking export change is `minor`, a fix is `patch`. A major only with the user's explicit yes for that release (`packages` rule).
+- The version is set by the release workflow (`npm version`), not by conventional commits. Always name `bump`: a breaking export change is `minor`, a fix is `patch`. The workflow offers no major; one would need the user's explicit yes for that release (`packages` rule).
 - `viem` is a peer: one copy per app.
 - Dependency versions change only through Renovate.
 
