@@ -110,4 +110,7 @@ the logs of a contract registered during the range, a handler does not need to r
   the cycle's block event says; a failed head read gives no block event and keeps the cursor.
 - `utils/get-past-events.spec.ts` (local chain): 1, 200, 399, 400 and 401 blocks with `chunkSize` 200 are requested
   once each, at most 200 per request; without `chunkSize`, one request.
-- `eth-router.service.spec.ts`: against a local chain (`JSON_RPC_ADDR` in `.env`, `docker compose up`).
+- `eth-router.service.spec.ts`: against a local chain (`JSON_RPC_ADDR` in `.env`, `docker compose up`), the cron on:
+  contracts deployed and used, then registered; the test waits until `getLastProcessedBlock()` reaches the block of the
+  last transaction and expects all ten events. The cursor starts at the head when the test starts: a long-running
+  local node has too many blocks to read from block 0 within the test.
