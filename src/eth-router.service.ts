@@ -107,9 +107,8 @@ export class EthRouterService {
   }
 
   public async listen(): Promise<void> {
-    const handlers = await this.blockHandlers();
-    // wait while the system is configured
-    if (!this.registry.length && !handlers.length) {
+    // no contracts yet (the app registers them later): nothing to read, the cursor waits for them
+    if (!this.registry.length) {
       return;
     }
 
@@ -122,11 +121,9 @@ export class EthRouterService {
       return;
     }
 
-    await this.emitBlock(head);
-
     const toBlock = head - this.options.latency;
-    // no contracts yet (the app registers them later), or waiting for confirmation: the cursor stays
-    if (!this.registry.length || this.options.fromBlock > toBlock) {
+    // waiting for confirmation: the cursor stays
+    if (this.options.fromBlock > toBlock) {
       return;
     }
 
@@ -143,6 +140,8 @@ export class EthRouterService {
       return;
     }
     this.options.fromBlock = toBlock + 1n;
+    // the range is done: its logs read, their handlers finished
+    await this.emitBlock(head);
   }
 
   public async getPastEvents(
@@ -284,7 +283,7 @@ export class EthRouterService {
       },
       log: args,
     });
-    // the block handlers finish before the logs are read; their rejections do not hold the range back
+    // the tick ends when the block handlers have finished; their rejections are logged and change nothing
     await this.drained();
   }
 
